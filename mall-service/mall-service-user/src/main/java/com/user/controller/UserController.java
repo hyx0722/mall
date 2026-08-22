@@ -4,11 +4,11 @@ package com.user.controller;
 
 import com.model.bean.Result;
 import com.model.bean.User;
-import com.model.util.JwtUtil;
 import com.model.util.ThreadLocalUtil;
 import com.user.bean.UserAddress;
 import com.user.bean.UserUpdateDTO;
 import com.user.service.UserService;
+import com.user.util.JwtUtil;
 import jakarta.validation.constraints.Pattern;
 
 import lombok.extern.slf4j.Slf4j;

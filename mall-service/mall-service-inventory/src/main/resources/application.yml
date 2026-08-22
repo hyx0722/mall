@@ -3,7 +3,7 @@ spring:
     active: dev
     include: feign
   application:
-    name: mall-service-inventory
+    name: mall-service-payment
   cloud:
     nacos:
       server-addr: localhost:8848
@@ -14,11 +14,8 @@ spring:
         username: nacos
         password: nacos
 
-pagehelper:
-  helper-dialect: mysql
-  reasonable: true
-  support-methods-arguments: true
-  params: count=countSql
+jwt:
+  secret: Ai+QwjUslNR6e0NXAcvbhv4LxGsLqkMlrq980le2VDPuwc+USgBW59fnAg9+
 
 server:
   port: 5000

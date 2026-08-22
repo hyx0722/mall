@@ -2,8 +2,8 @@ package com.user.intercetors;
 
 
 
-import com.model.util.JwtUtil;
 import com.model.util.ThreadLocalUtil;
+import com.user.util.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;

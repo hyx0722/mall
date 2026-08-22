@@ -2,7 +2,7 @@ package com.inventory.intercetors;
 
 
 
-import com.model.util.JwtUtil;
+import com.inventory.util.JwtUtil;
 import com.model.util.ThreadLocalUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;

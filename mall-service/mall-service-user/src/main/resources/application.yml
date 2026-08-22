@@ -14,11 +14,7 @@ spring:
         username: nacos
         password: nacos
 
-pagehelper:
-  helper-dialect: mysql
-  reasonable: true
-  support-methods-arguments: true
-  params: count=countSql
+
 
 
 server:
