@@ -1,0 +1,1 @@
+简单的电商平台，基于springcloud框架，使用mysql数据库和redis数据库，使用mybatis-plus工具和rabbitmq信息队列，可简单用于高并发场景。
