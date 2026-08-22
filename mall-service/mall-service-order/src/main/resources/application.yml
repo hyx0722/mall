@@ -42,7 +42,7 @@ spring:
     activate:
       on-profile: dev
     import:
-#      - nacos:common.yaml?group=mall-service-order
+      - nacos:common.yaml?group=mall-service-order
       - nacos:datasource.yaml?group=mall-service-order
 
 

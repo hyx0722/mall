@@ -45,7 +45,7 @@ spring:
     activate:
       on-profile: dev
     import:
-#      - nacos:common.yaml?group=mall-service-user
+      - nacos:common.yaml?group=mall-service-user
       - nacos:datasource.yaml?group=mall-service-user
 
 ---

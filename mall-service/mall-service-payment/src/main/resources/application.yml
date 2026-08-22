@@ -1,7 +1,7 @@
 spring:
   profiles:
     active: dev
-    include: feign,datasource
+    include: feign
   application:
     name: mall-service-product
   cloud:
@@ -42,8 +42,8 @@ spring:
     activate:
       on-profile: dev
     import:
-#      - nacos:common.yaml?group=mall-service-payment
-#      - nacos:datasource.yaml?group=mall-service-payment
+      - nacos:common.yaml?group=mall-service-payment
+      - nacos:datasource.yaml?group=mall-service-payment
 
 ---
 spring:
