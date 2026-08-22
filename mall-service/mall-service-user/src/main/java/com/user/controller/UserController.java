@@ -1,0 +1,194 @@
+package com.user.controller;
+
+
+
+import com.model.bean.Result;
+import com.model.bean.User;
+import com.model.util.JwtUtil;
+import com.model.util.ThreadLocalUtil;
+import com.user.bean.UserAddress;
+import com.user.bean.UserUpdateDTO;
+import com.user.service.UserService;
+import jakarta.validation.constraints.Pattern;
+
+import lombok.extern.slf4j.Slf4j;
+import org.hibernate.validator.constraints.URL;
+import org.redisson.api.RBloomFilter;
+
+import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.util.StringUtils;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+
+@Slf4j
+@RestController
+@Validated
+public class UserController {
+
+    private RBloomFilter<String> bloomFilter;
+    @Autowired
+    UserService userService;
+    @Autowired
+    private BCryptPasswordEncoder passwordEncoder;
+    @Autowired
+    RedissonClient redissonClient;
+    @Autowired
+    StringRedisTemplate stringRedisTemplate;
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    private final String bloomFilterName="UserBloomFilter";
+
+    //注册
+    @PostMapping("/register")
+    public Result register(@Pattern(regexp = "^\\S{5,16}$") @RequestParam("username") String username,
+                           @RequestParam("password") @Pattern(regexp = "^\\S{5,16}$") String password){
+        //布隆过滤器不存在则初始化，作为注册快速去重的缓存层
+        bloomFilter = redissonClient.getBloomFilter(bloomFilterName);
+        if (!bloomFilter.isExists()) {
+            bloomFilter.tryInit(100000L, 0.01);
+        }
+        //以数据库为准判断用户是否已注册（布隆过滤器存在误报且不支持删除，不能作为唯一判断依据）
+        if (userService.findPasswordByUsername(username) != null) {
+            return Result.error("注册失败用户已经存在");
+        }
+        bloomFilter.add(username);
+        userService.registerInsert(username, password);
+        return Result.success();
+    }
+
+    //登录
+    @PostMapping("/login")
+    public Result<String> login(@Pattern(regexp = "^\\S{5,16}$") @RequestParam("username") String username,
+                                @Pattern(regexp = "^\\S{5,16}$") @RequestParam("password") String password) {
+        //以数据库为准查询用户（布隆过滤器未预热/误报时可能拒绝已存在用户，不能作为登录门槛）
+        User loginUser = userService.findIdAndPasswordByUsername(username);
+        if (loginUser == null) {
+            return Result.error("该用户不存在");
+        }
+        //判断密码是否正确  loginUser对象中的password是密文
+        if (passwordEncoder.matches(password, loginUser.getPassword())) {
+            log.info("存在该用户并且密码正确");
+            //登录成功
+            Map<String, Object> claims = new HashMap<>();
+            claims.put("id", loginUser.getId());
+            claims.put("username", loginUser.getUsername());
+            String token = jwtUtil.genToken(claims);
+            // 存入 Redis（键为 login:token:{id}，用于主动失效或单设备登录）
+            stringRedisTemplate.opsForValue().set(
+                    "login:token:" + loginUser.getId(),
+                    token,
+                    1,
+                    TimeUnit.HOURS
+            );
+            return Result.success(token);
+        }
+        return Result.error("密码错误");
+    }
+
+    //查看登录的用户的详细资料
+    //只看username,email,phone,avatar,status
+    @GetMapping("/userInfo")
+    public Result<User> userInfo() {
+        Map<String, Object> map = ThreadLocalUtil.get();
+        String username = (String) map.get("username");
+        User user = userService.findUserByUsername(username);
+        return Result.success(user);
+    }
+
+    //查看其他的用户的详细资料
+    //只看名字，头像和状态
+    @GetMapping("/ortherUser")
+    public Result<User> otherUser(@Pattern(regexp = "^\\S{5,16}$") @RequestParam("username") String username) {
+        User user = userService.findOtherUserByUsername(username);
+        return Result.success(user);
+    }
+
+
+    //删除当前用户
+    @DeleteMapping("/delete")
+    public Result<String> delete() {
+        Map<String, Object> map = ThreadLocalUtil.get();
+        String username = (String) map.get("username");
+        Integer id = (Integer) map.get("id");
+        userService.delete(username);
+        //清理该用户的登录token，使其立即失效
+        stringRedisTemplate.delete("login:token:" + id);
+        return Result.success("该用户删除.");
+    }
+
+
+
+    //更新手机号和邮箱（只允许更新当前登录用户自己的信息，id 取自登录态防止越权）
+    @PutMapping("/update")
+    public Result update(@RequestBody @Validated UserUpdateDTO dto) {
+        Map<String, Object> map = ThreadLocalUtil.get();
+        Integer id = (Integer) map.get("id");
+        userService.update(id, dto.getPhone(), dto.getEmail());
+        return Result.success();
+    }
+
+    @PatchMapping("updateAvatar")
+    public Result updateAvatar(@RequestParam("avatar") @URL String avatar) {
+        userService.updateAvatar(avatar);
+        return Result.success();
+    }
+
+    //更换密码
+    @PatchMapping("/updatePwd")
+    public Result updatePwd(@RequestBody Map<String, String> params) {
+        //1.校验参数
+        String oldPwd = params.get("old_pwd");
+        String newPwd = params.get("new_pwd");
+        String rePwd = params.get("re_pwd");
+        if (!StringUtils.hasLength(oldPwd) || !StringUtils.hasLength(newPwd) || !StringUtils.hasLength(rePwd)) {
+            return Result.error("缺少必要的参数");
+        }
+        //新密码格式校验
+        if (!newPwd.matches("^\\S{5,16}$")) {
+            return Result.error("新密码长度必须在5-16位且不能包含空格");
+        }
+        if (newPwd.equals(oldPwd)) {
+            return Result.error("新密码不能与旧密码相同");
+        }
+        //原密码是否正确（matches(明文, 密文)）
+        Map<String, Object> map = ThreadLocalUtil.get();
+        String username = (String) map.get("username");
+        Integer id = (Integer) map.get("id");
+        String userPassword = userService.findPasswordByUsername(username);
+        if (!passwordEncoder.matches(oldPwd, userPassword)) {
+            return Result.error("原密码填写不正确");
+        }
+        //newPwd和rePwd是否一样
+        if (!rePwd.equals(newPwd)) {
+            return Result.error("两次填写的新密码不一样");
+        }
+        //2.调用service完成密码更新
+        userService.updatePwd(newPwd);
+        //3.删除该用户当前登录token，强制重新登录
+        stringRedisTemplate.delete("login:token:" + id);
+        return Result.success();
+    }
+
+
+    //添加收货人的信息
+    @PostMapping("/addReceiverDetail")
+    public Result addReceiverDetail(@RequestBody @Validated UserAddress userAddress){
+        Map<String, Object> map = ThreadLocalUtil.get();
+        Integer userId= (Integer) map.get("id");
+        userAddress.setUserId(userId);
+        userService.addReceiverDetail(userAddress);
+        return Result.success();
+    }
+
+
+
+}
