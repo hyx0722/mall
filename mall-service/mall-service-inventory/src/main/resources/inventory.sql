@@ -5,6 +5,7 @@ USE mall_service_inventory;
 CREATE TABLE `inventory` (
                              `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '库存记录ID',
                              `product_id`        BIGINT UNSIGNED NOT NULL                COMMENT '商品ID（逻辑外键 -> product_db.product.id）',
+                             `user_id`           BIGINT UNSIGNED Not Null                COMMENT '商家ID（逻辑外键 -> user_db.user.id）',
                              `total_stock`       INT UNSIGNED    NOT NULL DEFAULT 0      COMMENT '总库存（实际物理库存）',
                              `locked_stock`      INT UNSIGNED    NOT NULL DEFAULT 0      COMMENT '锁定库存（下单未支付等占用）',
                              `available_stock`   INT UNSIGNED    NOT NULL DEFAULT 0      COMMENT '可用库存（= total_stock - locked_stock）',
@@ -14,6 +15,7 @@ CREATE TABLE `inventory` (
                              `updated_time`        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
                              PRIMARY KEY (`id`),
                              UNIQUE KEY `uk_product_id` (`product_id`),
+                             UNIQUE KEY `uk_user_id` (`user_id`),
                              KEY `idx_available_stock` (`available_stock`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品库存表';
 

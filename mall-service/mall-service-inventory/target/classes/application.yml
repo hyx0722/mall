@@ -1,0 +1,54 @@
+spring:
+  profiles:
+    active: dev
+    include: feign
+  application:
+    name: mall-service-inventory
+  cloud:
+    nacos:
+      server-addr: localhost:8848
+      username: nacos
+      password: nacos
+      config:
+        namespace: dev
+        username: nacos
+        password: nacos
+
+jwt:
+  secret: Ai+QwjUslNR6e0NXAcvbhv4LxGsLqkMlrq980le2VDPuwc+USgBW59fnAg9+
+
+server:
+  port: 5000
+
+
+logging:
+  level:
+    com.hyx.order.feign: debug
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+    import:
+      - nacos:common.yaml?group=mall-service-inventory
+      - nacos:datasource.yaml?group=mall-service-inventory
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+    import:
+      - nacos:common.yaml?group=mall-service-inventory
+      - nacos:datasource.yaml?group=mall-service-inventory
+
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+    import:
+      - nacos:common.yaml?group=mall-service-inventory
+      - nacos:datasource.yaml?group=mall-service-inventory
+

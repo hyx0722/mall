@@ -4,5 +4,7 @@ import com.model.bean.Product;
 
 public interface ProductNumService {
 
-    void addProduct(Product product);
+    void addNumProduct(Product product);
+
+    Product findNumProduct(Product product);
 }

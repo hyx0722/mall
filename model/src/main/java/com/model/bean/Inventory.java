@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @TableName("inventory")
-public class inventory {
+public class Inventory {
     @TableField("id")
     @NotNull(message = "库存记录ID不能为空")
     private Integer id;

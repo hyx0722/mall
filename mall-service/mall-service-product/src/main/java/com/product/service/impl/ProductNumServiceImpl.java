@@ -12,7 +12,12 @@ public class ProductNumServiceImpl implements ProductNumService {
     ProductNumMapper productNumMapper;
 
     @Override
-    public void addProduct(Product product) {
-        productNumMapper.addProduct(product);
+    public void addNumProduct(Product product) {
+        productNumMapper.addNumProduct(product);
+    }
+
+    @Override
+    public Product findNumProduct(Product product) {
+        return productNumMapper.findNumProduct(product);
     }
 }
