@@ -21,6 +21,9 @@ public class Inventory {
     @TableField("product_id")
     @NotNull(message = "商品ID不能为空")
     private Integer productId;
+    @TableField("product_id")
+    @NotNull(message = "用户ID不能为空")
+    private Integer userId;
     @TableField("total_stock")
     private Integer totalStock;
     @TableField("locked_stock")

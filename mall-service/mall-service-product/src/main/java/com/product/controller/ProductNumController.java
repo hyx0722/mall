@@ -20,7 +20,7 @@ public class ProductNumController {
     @Autowired
     ProductNumService productNumService;
 
-    @PostMapping("addNumProduct")
+    @PostMapping("/addNumProduct")
     @Transactional
     public Result addNumProduct(@RequestBody @Validated Product product){
         if (productNumService.findNumProduct(product)==null){

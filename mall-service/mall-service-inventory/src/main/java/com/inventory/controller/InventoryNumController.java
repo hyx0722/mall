@@ -20,7 +20,7 @@ public class InventoryNumController {
     InventoryNumService inventoryNumService;
 
     @Transactional
-    @PostMapping("addNumInventory")
+    @PostMapping("/addNumInventory")
     public Result addNumInventory(@RequestBody @Validated Product product){
         if(inventoryNumService.findNumInventory(product)!=null){
             return Result.error("该商品已存在库存中，请修改");

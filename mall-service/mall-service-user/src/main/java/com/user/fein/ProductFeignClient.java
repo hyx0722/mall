@@ -11,6 +11,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 @FeignClient(value = "mall-service-product",fallback = ProductFeignClientFallback.class)
 public interface ProductFeignClient {
 
-    @PostMapping("addNumProduct")
+    @PostMapping("/addNumProduct")
     Result addNumProduct(Product product);
 }
