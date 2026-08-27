@@ -1,12 +1,16 @@
 package com.user.mapper;
 
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.model.bean.User;
 import com.user.bean.UserAddress;
 import org.apache.ibatis.annotations.*;
 
 @Mapper
-public interface UserMapper  {
+public interface UserMapper  extends BaseMapper<User> {
+
+    @Insert("INSERT INTO user(username,password,created_time,updated_time,status) values(#{username},#{password},now(),now(),1)")
+    void registerInsert(@Param("username")String username,@Param("password")String password);
 
     @Select("select password from user where username=#{username}")
     String findPasswordByUserName(@Param("username") String username);
@@ -14,8 +18,7 @@ public interface UserMapper  {
     @Select("select id,username,password from user where username=#{username}")
     User findIdAndPasswordByUserName(@Param("username") String username);
 
-    @Insert("INSERT INTO user(username,password,created_time,updated_time,status) values(#{username},#{password},now(),now(),1)")
-    void registerInsert(@Param("username")String username,@Param("password")String password);
+
 
     @Select("select username,email,phone,avatar,status from user where username=#{username}")
     User findUserByUsername(@Param("username") String username);

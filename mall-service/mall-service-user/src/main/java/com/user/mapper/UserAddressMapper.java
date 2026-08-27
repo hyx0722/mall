@@ -1,5 +1,6 @@
 package com.user.mapper;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.user.bean.UserAddress;
 import org.apache.ibatis.annotations.*;
 
@@ -8,7 +9,7 @@ import java.util.List;
 
 
 @Mapper
-public interface UserAddressMapper {
+public interface UserAddressMapper extends BaseMapper<UserAddress> {
 
     @Insert("INSERT INTO user_address (user_id,receiver_name,receiver_phone,province,city,district,detail_address,is_default,create_time)" +
             "    VALUES (" +

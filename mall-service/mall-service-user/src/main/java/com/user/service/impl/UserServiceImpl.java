@@ -3,8 +3,6 @@ package com.user.service.impl;
 import com.model.bean.User;
 import com.model.util.ThreadLocalUtil;
 import com.user.bean.UserAddress;
-import com.user.fein.OrderFeignClient;
-import com.user.fein.ProductFeignClient;
 import com.user.mapper.UserMapper;
 import com.user.service.UserService;
 
@@ -19,12 +17,6 @@ public class UserServiceImpl  implements UserService {
 
     @Autowired
     private UserMapper userMapper;
-
-    @Autowired
-    OrderFeignClient orderFeignClient;
-
-    @Autowired
-    ProductFeignClient productFeignClient;
 
     @Autowired
     private BCryptPasswordEncoder passwordEncoder;

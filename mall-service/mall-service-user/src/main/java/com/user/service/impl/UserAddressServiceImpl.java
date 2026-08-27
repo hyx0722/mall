@@ -31,6 +31,7 @@ public class UserAddressServiceImpl implements UserAddressService {
     public void deleteUserAddress(Integer id){
         Map<String,Object> map = ThreadLocalUtil.get();
         Integer userId = (Integer) map.get("id");
+        userAddressMapper.deleteById(id);
         userAddressMapper.deleteUserAddress(id,userId);
     }
 
