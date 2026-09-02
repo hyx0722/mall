@@ -8,6 +8,8 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.List;
+
 @Mapper
 public interface InventoryNumMapper {
 
@@ -29,4 +31,17 @@ public interface InventoryNumMapper {
             "updated_time=now() " +
             "where product_id=#{productId} and user_id=#{userId}")
     int addStock(@Param("productId") Long productId, @Param("userId") Long userId, @Param("qty") Integer qty);
+
+    // 管理员：查询库存（可按商品 id 过滤）；跨库带商品名与卖家用户名
+    @Select("<script>" +
+            "select i.id,i.product_id,i.user_id,i.total_stock,i.locked_stock,i.available_stock,i.sales_count,i.version,i.created_time,i.updated_time," +
+            " p.name as product_name, u.username as seller_name " +
+            "from inventory i " +
+            "left join mall_service_product.product p on p.id=i.product_id " +
+            "left join mall_service_user.user u on u.id=i.user_id " +
+            "where 1=1" +
+            "<if test='productId != null'> and i.product_id=#{productId}</if>" +
+            " order by i.id desc" +
+            "</script>")
+    List<Inventory> findAllInventory(@Param("productId") Long productId);
 }

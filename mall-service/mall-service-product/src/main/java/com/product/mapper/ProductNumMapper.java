@@ -45,4 +45,8 @@ public interface ProductNumMapper {
     // 上/下架（带归属）
     @Update("update product set status=#{status}, updated_time=now() where id=#{id} and user_id=#{userId}")
     int updateProductStatus(@Param("id") Long id, @Param("userId") Long userId, @Param("status") Integer status);
+
+    // 管理员对任意商品上/下架（不带归属）
+    @Update("update product set status=#{status}, updated_time=now() where id=#{id}")
+    int updateStatusById(@Param("id") Long id, @Param("status") Integer status);
 }

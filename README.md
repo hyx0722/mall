@@ -33,29 +33,31 @@ mall
 └── pom.xml                    # 父工程（依赖版本统一管理）
 ```
 
+> 仓库根目录另含两个 **Vue 前端工程**（不参与 Maven 构建）：`mall-web`（买家/卖家端）与 `mall-admin`（管理后台），详见 §10。
+
 ### 服务与端口
 
 | 服务 | 端口 | 说明 |
 | ---- | ---- | ---- |
-| mall-gateway | 9999 | 统一入口，路由 /user /product /order /inventory |
-| mall-service-user | 9000 | 注册登录 / 资料 / 收货地址 / 商家一键上架 |
-| mall-service-product | 8000 | 商品与分类 |
-| mall-service-order | 6000 | 下单 |
-| mall-service-inventory | 5000 | 库存锁定/扣减/补货 |
-| mall-service-payment | 7000 | 支付（建支付单/渠道下单/异步回调/模拟支付） |
+| mall-gateway | 9999 | 统一入口，路由 /user /product /order /inventory /pay |
+| mall-service-user | 9001 | 注册登录 / 资料 / 收货地址 / 商家一键上架 |
+| mall-service-product | 9002 | 商品与分类 |
+| mall-service-order | 9003 | 下单 |
+| mall-service-inventory | 9004 | 库存锁定/扣减/补货 |
+| mall-service-payment | 9005 | 支付（建支付单/渠道下单/异步回调/模拟支付） |
 
-> 下游业务服务自身不做 JWT 鉴权，只信任网关注入的 `X-User-Id` / `X-Username`（网关会先剥离入站同名伪造头再注入）；user 服务因承担登录签发，另保留一层本地 `LoginInterceptor` 二次校验。
+> 下游业务服务自身不做 JWT 鉴权，只信任网关注入的 `X-User-Id` / `X-Username` / `X-User-Role`（网关会先剥离入站同名伪造头再注入）；user 服务因承担登录签发，另保留一层本地 `LoginInterceptor` 二次校验。下游统一用 `mall-common.Auths` 读取当前用户/角色（`requireLogin()` / `requireAdmin()` 断言），详见 §8。
 
 ## 主要业务逻辑
 
 ### 1. 登录与鉴权链路（单设备登录）
 
 1. 客户端经网关 `POST /user/login`（白名单，不校验 token）登录。
-2. user 服务校验 BCrypt 密码 → 签发 JWT（内含 `claims.id / claims.username`，有效期 1h）→ 写入 Redis `login:token:{id}`（TTL 1h）。
+2. user 服务校验 BCrypt 密码（`status=0` 的禁用账号直接拒绝登录）→ 签发 JWT（内含 `claims.id / claims.username / claims.role`，有效期 1h）→ 写入 Redis `login:token:{id}`（TTL 1h）。
 3. 网关 `AuthGlobalFilter` 对白名单外的请求统一鉴权：
    - 解析 JWT → 校验 Redis 中 token 与当前一致（支持主动失效 / 单设备踢下线）；
-   - 通过后剥离入站伪造的 `X-User-Id/X-Username`，再注入真实身份头下发给下游。
-4. 下游 product/order/inventory 通过 `mall-common.IdentityInterceptor` 把身份头写入 `ThreadLocal`，controller/service 读取当前用户；user 服务由 `LoginInterceptor` 直接解析 JWT + 校验 Redis。
+   - 通过后剥离入站伪造的 `X-User-Id/X-Username/X-User-Role`，再注入真实身份头下发给下游。
+4. 下游 product/order/inventory 通过 `mall-common.IdentityInterceptor` 把身份头（含 `role`）写入 `ThreadLocal`，controller/service 用 `mall-common.Auths` 读取当前用户/角色并做 `requireLogin()` / `requireAdmin()` 断言；user 服务由 `LoginInterceptor` 直接解析 JWT + 校验 Redis。
 5. 改密 / 删号（以及 Redis 1h TTL 到期）会使 `login:token:{id}` 失效，旧 token 立即不可用。
 
 ### 2. 下单 → 锁库存 → 支付 → 发货 主链路（RabbitMQ 解耦「订单 ↔ 库存 ↔ 支付」）
@@ -93,7 +95,7 @@ mall
 | ---- | ---- | ---- |
 | TopicExchange | `mall.order.exchange` | 下单/支付/取消事件总线（durable，order/inventory/payment 三端共用） |
 | 路由键 | `order.created` | order 发布，inventory 订阅 |
-| 路由键 | `order.canceled` | order 发布（支付超时自动取消），inventory 释放锁定 / payment 关闭未付支付单 |
+| 路由键 | `order.canceled` | order 发布（支付超时 / 买家手动 / 商家整单取消），inventory 释放锁定 / payment 关闭未付支付单 |
 | 路由键 | `inventory.deducted` / `inventory.deduct_failed` | inventory 回执，order 订阅 |
 | 路由键 | `pay.success` | payment 发布，order 订阅（支付成功：0 待付款 → 1 待发货） |
 | Queue | `q.inventory.order.created` | 库存侧消费下单事件 |
@@ -111,11 +113,13 @@ mall
 3. 用回填的 `product.id` 调 inventory 服务 `/addNumInventory` 初始化一条 0 库存记录；
 4. 任一段失败即抛业务异常并中止，避免出现「商品建好了、库存却没建」的脏状态。
 
+> 归属只取登录态，请求体（`PublishProductRequest`）不含 `id / userId`；商品一经创建即处于上架状态（`status=1`，发布即上架）。
+
 ### 5. 商品与分类
 
 - **商家管理（归属校验均带 `user_id`）**：上架 `/addNumProduct`（`uk_user_name(user_id,name)` 防重复上架）、部分更新 `/updateProduct`、上下架 `/shelfProduct`。
 - **买家浏览**：`/list` 关键词模糊 + 分类筛选 + 白名单排序（`price_asc/price_desc/newest`）+ 分页，只展示在售商品。
-- **分类**：支持多级分类；`/category/tree` 在内存中递归拼树并做了防环保护，管理接口会校验父分类存在、禁止把自己挂到自己下、同级同名拦截。
+- **分类**：支持多级分类；`/category/tree` 在内存中递归拼树并做了防环保护，管理接口会校验父分类存在、禁止把自己挂到自己下、同级同名拦截。新增/修改分类（`/category/add`、`/category/update`）已收紧为**仅管理员**可操作（`Auths.requireAdmin()`），买家浏览不受影响。
 
 ### 6. 库存补货与流水
 
@@ -124,6 +128,53 @@ mall
 ### 7. 收货地址
 
 `user` 服务提供地址增删改查；删除 / 修改 / 详情均带 `id AND user_id` 归属条件，防止越权操作他人地址。
+
+### 8. 用户角色与后台管理
+
+系统区分两类角色（`user.role`，注册默认为普通用户）：
+
+| 值 | 角色 | 说明 |
+| ---- | ---- | ---- |
+| 1 | 普通用户 | 注册即得；下单、收货地址；作为商家可上架商品、补货、管理店铺订单 |
+| 2 | 管理员 | 内部后台账号；可跨用户/商品/订单/库存做管理操作，可对任意商品上/下架 |
+
+角色贯穿鉴权链路：
+
+1. 登录时 user 服务把 `role` 写入 JWT `claims`（**旧 token 无 role 一律按普通用户处理**，向下兼容）；
+2. 网关 `AuthGlobalFilter` 剥离入站伪造的 `X-User-Role` 头并注入真实值；
+3. 下游各服务经 `mall-common.Auths` 读取身份做 `requireLogin()` / `requireAdmin()`，角色不符抛业务异常（`X-User-Role` 也随 Feign 透传）。
+
+**管理员接口**（均需 `role=2`，网关前缀后路径）：
+
+| 服务(前缀) | 接口 | 说明 |
+| ---- | ---- | ---- |
+| /user | `GET /admin/listUsers?page&size&keyword` | 分页查用户（用户名/邮箱/手机号过滤） |
+| /user | `PUT /admin/updateUser` | 改状态/角色/邮箱/手机号；禁用或降级即删其 Redis token 强制下线；不允许改自己（防自锁） |
+| /user | `PATCH /admin/resetPwd` | 重置密码并使其下线 |
+| /product | `GET /admin/listAll?page&size&keyword` | 查看全部商品（含下架，联表带卖家名） |
+| /product | `PUT /admin/shelf?id&status` | 对任意商品上/下架 |
+| /order | `GET /admin/findAllOrder?status` | 按订单状态查全部订单 |
+| /order | `GET /admin/findDetailOrder?id` · `GET /admin/findOrderItems?orderId` | 订单详情 / 明细（联表带买家名） |
+| /inventory | `GET /admin/listAll?productId` | 查库存（联表带商品名/卖家名） |
+
+> **账号禁用**：管理员把用户 `status` 置 0 即禁用，该账号此后登录被拒（"该账号已被禁用，请联系管理员"），已登录会话因 token 被删而立即失效。
+>
+> **管理员初始化**：user 服务启动时自动为旧库 `user` 表补齐 `role` 列，并在库中不存在管理员（`role=2`）时按 `mall.admin.username/password`（默认 `admin/admin123`，见 user 服务 `application.yml`）自动创建管理员账号。
+
+### 9. 订单取消：买家手动 / 商家整单
+
+除支付超时自动取消外，待付款订单还支持以下取消入口，三者统一发布 `order.canceled`（有事务时 `afterCommit` 后再发）→ inventory 释放锁定库存、payment 关闭未付支付单：
+
+- **买家取消** `POST /order/cancel?id`：仅能取消**本人**且处于**待付款**的订单；`user_id AND order_status=0` 条件更新，与支付并发天然互斥，谁先提交谁生效。
+- **商家查看** `GET /order/seller/orders`：返回含自己商品的订单及本人那份明细，并标记 `cancellable`（待付款 **且** 不含其它卖家商品）。
+- **商家整单取消** `POST /order/seller/cancel?id`：订单须含自己的商品且**不含他人商品**（混单不可整单取消），仅待付款可取消。
+
+### 10. 前端工程（mall-web / mall-admin）
+
+仓库根目录另含两个 Vue 前端工程（不参与 Maven 构建），开发时均经 Vite 代理到网关 9999：
+
+- `mall-web`：买家/卖家端 —— 注册登录、商品浏览、下单/支付、我的订单、商家中心（店铺商品 / 卖家订单）与收货地址管理等；
+- `mall-admin`：管理后台 —— 用户管理、商品管理、订单管理、库存查询、分类管理（对接各服务 `/admin/*` 接口，鉴权要求管理员角色）。
 
 ## 接口速览
 
@@ -138,15 +189,21 @@ mall
 | /user | POST /updateUserAddressById?id= · DELETE /deleteUserAddress?id= | 改/删地址 |
 | /user | GET /selectUserAddress · GET /selectUserDetailAddress?id= | 查地址 |
 | /user | POST /userToAddProduct | 商家一键上架商品并初始化库存 |
+| /user | GET /admin/listUsers?page&size&keyword · PUT /admin/updateUser · PATCH /admin/resetPwd | 后台用户管理（仅管理员） |
 | /product | GET /list | 买家分页浏览（关键词/分类/排序） |
 | /product | GET /findProductById?id= | 按 id 查商品（供下单快照） |
 | /product | GET /findProductByUserId · /findProductByUserName | 按卖家查商品 |
 | /product | POST /addNumProduct · PUT /updateProduct · PUT /shelfProduct | 商家商品管理 |
+| /product | GET /admin/listAll?page&size&keyword · PUT /admin/shelf?id&status | 后台商品管理（仅管理员） |
 | /product | GET /category/list · /category/tree | 分类浏览 |
-| /product | POST /category/add · PUT /category/update | 分类管理 |
+| /product | POST /category/add · PUT /category/update | 分类管理（仅管理员） |
 | /order | POST /createOrder | 下单（发 order.created 事件） |
 | /order | GET /findAllOrder · GET /findDetailOrder?id= | 查我的订单 |
+| /order | POST /cancel?id | 买家手动取消本人待付款订单 |
+| /order | GET /seller/orders · POST /seller/cancel?id | 商家查看 / 整单取消含自己商品的订单 |
+| /order | GET /admin/findAllOrder?status · GET /admin/findDetailOrder?id · GET /admin/findOrderItems?orderId | 后台订单查询（仅管理员） |
 | /inventory | POST /addNumInventory · POST /restock?productId&qty | 初始化库存 / 补货 |
+| /inventory | GET /admin/listAll?productId | 后台库存查询（仅管理员） |
 | /pay | POST /create | 创建支付单并返回渠道收银台参数（支付宝表单/微信 code_url） |
 | /pay | POST /mock/success | 模拟支付成功（测试钩子，需配置 payment.mock.enabled=true） |
 | /pay | POST /alipay/notify · POST /wx/notify | 微信/支付宝异步回调（网关白名单，无登录态） |

@@ -4,50 +4,53 @@ spring:
   # 网关无数据源；父 pom 全局声明了 mybatis-plus starter（连带 JDBC 自动配置），这里显式排除
   autoconfigure:
     exclude:
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceTransactionManagerAutoConfiguration
   cloud:
     nacos:
       server-addr: localhost:8848
       username: nacos
       password: nacos
     gateway:
-      routes:
-        # 用户服务：/user/** -> mall-service-user 根路径
-        - id: mall-user
-          uri: lb://mall-service-user
-          predicates:
-            - Path=/user/**
-          filters:
-            - StripPrefix=1
-        # 商品服务
-        - id: mall-product
-          uri: lb://mall-service-product
-          predicates:
-            - Path=/product/**
-          filters:
-            - StripPrefix=1
-        # 订单服务
-        - id: mall-order
-          uri: lb://mall-service-order
-          predicates:
-            - Path=/order/**
-          filters:
-            - StripPrefix=1
-        # 库存服务
-        - id: mall-inventory
-          uri: lb://mall-service-inventory
-          predicates:
-            - Path=/inventory/**
-          filters:
-            - StripPrefix=1
-        # 支付服务
-        - id: mall-payment
-          uri: lb://mall-service-payment
-          predicates:
-            - Path=/pay/**
-          filters:
-            - StripPrefix=1
+      # Spring Cloud Gateway 5.x 静态路由前缀为 spring.cloud.gateway.server.webflux.routes（旧 spring.cloud.gateway.routes 已不再识别）
+      server:
+        webflux:
+          routes:
+            # 用户服务：/user/** -> mall-service-user 根路径
+            - id: mall-user
+              uri: lb://mall-service-user
+              predicates:
+                - Path=/user/**
+              filters:
+                - StripPrefix=1
+            # 商品服务
+            - id: mall-product
+              uri: lb://mall-service-product
+              predicates:
+                - Path=/product/**
+              filters:
+                - StripPrefix=1
+            # 订单服务
+            - id: mall-order
+              uri: lb://mall-service-order
+              predicates:
+                - Path=/order/**
+              filters:
+                - StripPrefix=1
+            # 库存服务
+            - id: mall-inventory
+              uri: lb://mall-service-inventory
+              predicates:
+                - Path=/inventory/**
+              filters:
+                - StripPrefix=1
+            # 支付服务
+            - id: mall-payment
+              uri: lb://mall-service-payment
+              predicates:
+                - Path=/pay/**
+              filters:
+                - StripPrefix=1
   data:
     redis:
       host: 127.0.0.1

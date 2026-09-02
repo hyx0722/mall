@@ -30,6 +30,11 @@ public class InventoryNumServiceImpl implements InventoryNumService {
     }
 
     @Override
+    public java.util.List<Inventory> listAllInventory(Long productId) {
+        return inventoryNumMapper.findAllInventory(productId);
+    }
+
+    @Override
     @Transactional
     public void restock(Long userId, Long productId, Integer qty) {
         if (userId == null) {

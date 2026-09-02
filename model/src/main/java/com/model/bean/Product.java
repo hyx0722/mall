@@ -46,4 +46,7 @@ public class Product {
     private LocalDateTime createdTime;
     @TableField(value = "updated_time")
     private LocalDateTime updatedTime;
+    // 非持久化：管理员商品列表联表带出的卖家用户名
+    @TableField(exist = false)
+    private String sellerName;
 }

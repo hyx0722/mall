@@ -52,5 +52,8 @@ public class Order {
     private LocalDateTime createdTime;
     @TableField("updated_time")
     private LocalDateTime updatedTime;
+    // 非持久化：管理员订单列表/详情联表带出的买家用户名（下单人，非收货人）
+    @TableField(exist = false)
+    private String buyerName;
 
 }

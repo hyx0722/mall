@@ -54,6 +54,8 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             }
             long id = ((Number) idObj).longValue();
             String username = (String) claims.get("username");
+            // 角色取自 claims，旧 token 无 role 视为普通用户 1
+            int role = claims.get("role") instanceof Number r ? r.intValue() : 1;
 
             // 校验登录态仍有效（单设备登录 / 主动失效）
             String redisToken = stringRedisTemplate.opsForValue().get("login:token:" + id);
@@ -66,10 +68,12 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
                     .headers(h -> {
                         h.remove("X-User-Id");
                         h.remove("X-Username");
+                        h.remove("X-User-Role");
                     })
                     .headers(h -> {
                         h.set("X-User-Id", String.valueOf(id));
                         h.set("X-Username", username);
+                        h.set("X-User-Role", String.valueOf(role));
                     })
                     .build();
             return chain.filter(exchange.mutate().request(request).build());

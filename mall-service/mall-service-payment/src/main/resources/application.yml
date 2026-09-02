@@ -20,7 +20,7 @@ spring:
     password: guest
 
 server:
-  port: 7000
+  port: 9005
 
 # 支付渠道占位配置（真实微信/支付宝商户参数后替换）。
 # 各渠道 enabled=false 时不加载/调用 SDK 运行时代码（仅 classpath 存在供编译）。

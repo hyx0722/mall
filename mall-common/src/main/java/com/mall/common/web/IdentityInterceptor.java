@@ -25,6 +25,10 @@ public class IdentityInterceptor implements HandlerInterceptor {
             Map<String, Object> identity = new HashMap<>();
             identity.put("id", Long.valueOf(xUserId));
             identity.put("username", request.getHeader("X-Username"));
+            String role = request.getHeader("X-User-Role");
+            if (role != null && !role.isBlank()) {
+                identity.put("role", Integer.valueOf(role));
+            }
             ThreadLocalUtil.set(identity);
         }
         return true;

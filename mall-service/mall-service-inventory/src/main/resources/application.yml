@@ -20,7 +20,7 @@ spring:
     password: guest
 
 server:
-  port: 5000
+  port: 9004
 ---
 spring:
   config:

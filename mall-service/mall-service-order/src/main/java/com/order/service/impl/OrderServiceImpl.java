@@ -11,6 +11,7 @@ import com.model.exception.BusinessException;
 import com.model.util.ThreadLocalUtil;
 import com.order.bean.CreateOrderRequest;
 import com.order.bean.OrderItem;
+import com.order.bean.SellerOrderVO;
 import com.order.config.OrderRabbitConfig;
 import com.order.fein.ProductFeignClient;
 import com.order.mapper.OrderItemMapper;
@@ -60,6 +61,21 @@ public class OrderServiceImpl implements OrderService {
         }
         Long userId = (Long) map.get("id");
         return orderMapper.findDetailOrder(id,userId);
+    }
+
+    @Override
+    public List<Order> adminFindOrders(Integer status) {
+        return orderMapper.findAdminOrders(status);
+    }
+
+    @Override
+    public Order adminFindOrderById(Long id) {
+        return orderMapper.findOrderById(id);
+    }
+
+    @Override
+    public List<OrderItem> adminFindOrderItems(Long orderId) {
+        return orderItemMapper.selectDetailByOrderId(orderId);
     }
 
     /**
@@ -189,7 +205,87 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    @Override
+    @Transactional
+    public void buyerCancel(Long userId, Long orderId) {
+        if (userId == null) {
+            throw new BusinessException("请先登录");
+        }
+        if (orderId == null) {
+            throw new BusinessException("缺少订单 id");
+        }
+        // 条件更新：仅本人 + 待付款，天然防并发（先被支付/取消翻转则影响 0 行）
+        int affected = orderMapper.cancelUnpaidByIdAndUser(orderId, userId);
+        if (affected == 0) {
+            throw new BusinessException("订单不存在或当前状态不可取消");
+        }
+        Order order = orderMapper.findOrderById(orderId);
+        publishCanceled(order);
+    }
+
+    @Override
+    public List<SellerOrderVO> sellerOrders(Long userId) {
+        if (userId == null) {
+            throw new BusinessException("请先登录");
+        }
+        List<Order> orders = orderMapper.findSellerOrders(userId);
+        List<SellerOrderVO> result = new ArrayList<>();
+        for (Order order : orders) {
+            SellerOrderVO vo = new SellerOrderVO();
+            vo.setOrder(order);
+            vo.setItems(orderItemMapper.selectMyItems(order.getId(), userId));
+            // 混单（含其它卖家的商品）不可由本商家整单取消
+            boolean hasForeign = orderMapper.countForeignItemLines(order.getId(), userId) > 0;
+            vo.setCancellable(order.getOrderStatus() != null
+                    && order.getOrderStatus() == 0 && !hasForeign);
+            result.add(vo);
+        }
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public void sellerCancel(Long userId, Long orderId) {
+        if (userId == null) {
+            throw new BusinessException("请先登录");
+        }
+        if (orderId == null) {
+            throw new BusinessException("缺少订单 id");
+        }
+        long mine = orderMapper.countMyItemLines(orderId, userId);
+        if (mine == 0) {
+            throw new BusinessException("该订单中没有你的商品");
+        }
+        long foreign = orderMapper.countForeignItemLines(orderId, userId);
+        if (foreign > 0) {
+            throw new BusinessException("订单含其他卖家的商品，暂不能取消");
+        }
+        int affected = orderMapper.cancelUnpaidById(orderId);
+        if (affected == 0) {
+            throw new BusinessException("订单不存在或当前状态不可取消");
+        }
+        Order order = orderMapper.findOrderById(orderId);
+        publishCanceled(order);
+    }
+
     private void publishCanceled(Order order) {
+        OrderCanceledEvent event = buildCanceledEvent(order);
+        // 有事务时提交后再发，避免下游在订单取消未落库时就消费；无事务（如定时扫描）则立即发
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    rabbitTemplate.convertAndSend(OrderRabbitConfig.ORDER_EXCHANGE,
+                            OrderRabbitConfig.RK_ORDER_CANCELED, event);
+                }
+            });
+        } else {
+            rabbitTemplate.convertAndSend(OrderRabbitConfig.ORDER_EXCHANGE,
+                    OrderRabbitConfig.RK_ORDER_CANCELED, event);
+        }
+    }
+
+    private OrderCanceledEvent buildCanceledEvent(Order order) {
         List<OrderItem> items = orderItemMapper.selectByOrderId(order.getId());
         OrderCanceledEvent event = new OrderCanceledEvent();
         event.setOrderNo(order.getOrderNo());
@@ -203,8 +299,7 @@ public class OrderServiceImpl implements OrderService {
             evtItems.add(it);
         }
         event.setItems(evtItems);
-        rabbitTemplate.convertAndSend(OrderRabbitConfig.ORDER_EXCHANGE,
-                OrderRabbitConfig.RK_ORDER_CANCELED, event);
+        return event;
     }
 
     private String genOrderNo(Long userId) {

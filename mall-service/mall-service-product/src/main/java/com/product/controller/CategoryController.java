@@ -1,8 +1,7 @@
 package com.product.controller;
 
+import com.mall.common.web.Auths;
 import com.model.bean.Result;
-import com.model.exception.BusinessException;
-import com.model.util.ThreadLocalUtil;
 import com.product.bean.Category;
 import com.product.service.CategoryService;
 import jakarta.validation.Valid;
@@ -11,10 +10,9 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 /**
- * 商品分类。查询公开；增/改需登录（现状无商家/管理员角色，登录即可）。
+ * 商品分类。查询公开（买家浏览/卖家选品下拉）；增/改仅管理员（内部系统分类管理）。
  * 经网关访问：/product/category/list 等（StripPrefix=1 后映射到 /category/*）。
  */
 @RestController
@@ -38,21 +36,14 @@ public class CategoryController {
 
     @PostMapping("/category/add")
     public Result<Category> add(@RequestBody @Valid Category category) {
-        requireLogin();
+        Auths.requireAdmin();
         return Result.success(categoryService.add(category));
     }
 
     @PutMapping("/category/update")
     public Result update(@RequestBody @Valid Category category) {
-        requireLogin();
+        Auths.requireAdmin();
         categoryService.update(category);
         return Result.success();
-    }
-
-    private void requireLogin() {
-        Map<String, Object> map = ThreadLocalUtil.get();
-        if (map == null || map.get("id") == null) {
-            throw new BusinessException("请先登录");
-        }
     }
 }

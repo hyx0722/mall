@@ -14,4 +14,7 @@ public interface ProductNumService {
 
     /** 商家上/下架自己商品：status=1 上架 / 0 下架 */
     void changeProductStatus(Long userId, Long id, Integer status);
+
+    /** 管理员对任意商品上/下架（无归属限制，角色校验在 controller 层） */
+    void adminChangeStatus(Long id, Integer status);
 }

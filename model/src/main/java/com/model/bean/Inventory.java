@@ -38,6 +38,10 @@ public class Inventory {
     private LocalDateTime createdTime;
     @TableField("updated_time")
     private LocalDateTime updatedTime;
-
+    // 非持久化：管理员库存列表联表带出的商品名/卖家用户名
+    @TableField(exist = false)
+    private String productName;
+    @TableField(exist = false)
+    private String sellerName;
 
 }

@@ -15,8 +15,8 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EnableFeignClients
 @EnableTransactionManagement
 @Import({GlobalExceptionHandler.class, CommonWebConfig.class, CommonFeignConfig.class})
-public class PaymentApplication {
+public class MallServicePaymentApplication {
     public static void main(String[] args) {
-        SpringApplication.run(PaymentApplication.class,args);
+        SpringApplication.run(MallServicePaymentApplication.class,args);
     }
 }

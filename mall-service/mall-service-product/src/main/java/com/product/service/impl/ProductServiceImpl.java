@@ -74,4 +74,17 @@ public class ProductServiceImpl implements ProductService {
         }
         return Math.min(size, MAX_SIZE);
     }
+
+    @Override
+    public PageBean<Product> pageAllProducts(Integer page, Integer size, String keyword) {
+        int p = (page == null || page < 1) ? 1 : page;
+        int s = normSize(size);
+        String kw = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
+        long total = productMapper.countAllProducts(kw);
+        if (total == 0L) {
+            return new PageBean<>(0L, List.of());
+        }
+        List<Product> items = productMapper.pageAllProducts(kw, (p - 1) * s, s);
+        return new PageBean<>(total, items);
+    }
 }

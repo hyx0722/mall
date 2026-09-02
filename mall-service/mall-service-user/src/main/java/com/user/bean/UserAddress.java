@@ -35,6 +35,6 @@ public class UserAddress {
     private String detailAddress;
     @TableField(value = "is_default")
     private Integer isDefault;
-    @TableField(value = "create_time")
+    @TableField(value = "created_time")
     private LocalDateTime createdTime;
 }

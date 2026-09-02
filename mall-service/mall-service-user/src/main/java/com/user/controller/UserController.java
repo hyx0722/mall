@@ -60,6 +60,10 @@ public class UserController {
         if (loginUser == null) {
             return Result.error("该用户不存在");
         }
+        //禁用账号拒绝登录
+        if (loginUser.getStatus() != null && loginUser.getStatus() == 0) {
+            return Result.error("该账号已被禁用，请联系管理员");
+        }
         //判断密码是否正确  loginUser对象中的password是密文
         if (passwordEncoder.matches(password, loginUser.getPassword())) {
             log.info("存在该用户并且密码正确");
@@ -67,6 +71,9 @@ public class UserController {
             Map<String, Object> claims = new HashMap<>();
             claims.put("id", loginUser.getId());
             claims.put("username", loginUser.getUsername());
+            // 角色：注册默认普通用户 1；管理员 2（用于网关注入 X-User-Role / 后台鉴权）
+            int role = loginUser.getRole() == null ? 1 : loginUser.getRole();
+            claims.put("role", role);
             String token = jwtUtil.genToken(claims);
             // 存入 Redis（键为 login:token:{id}，用于主动失效或单设备登录）
             stringRedisTemplate.opsForValue().set(

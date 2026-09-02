@@ -1,6 +1,8 @@
 package com.inventory.controller;
 
 import com.inventory.service.InventoryNumService;
+import com.mall.common.web.Auths;
+import com.model.bean.Inventory;
 import com.model.bean.Product;
 import com.model.bean.Result;
 import com.model.util.ThreadLocalUtil;
@@ -8,11 +10,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -44,5 +48,12 @@ public class InventoryNumController {
         Long userId = (map == null) ? null : (Long) map.get("id");
         inventoryNumService.restock(userId, productId, qty);
         return Result.success();
+    }
+
+    //管理员：查询库存（可按商品 id 过滤）。经网关 /inventory/admin/listAll
+    @GetMapping("/admin/listAll")
+    public Result<List<Inventory>> listAll(@RequestParam(required = false) Long productId) {
+        Auths.requireAdmin();
+        return Result.success(inventoryNumService.listAllInventory(productId));
     }
 }

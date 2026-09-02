@@ -20,7 +20,7 @@ spring:
     password: guest
 
 server:
-  port: 6000
+  port: 9003
 
 # 支付超时自动取消阈值（分钟）
 order:

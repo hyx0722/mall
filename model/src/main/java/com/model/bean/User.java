@@ -36,9 +36,11 @@ public class User {
     private String avatar;
     @TableField(value = "status")
     private Integer status;
-    @TableField(value = "create_time")
+    @TableField(value = "role")
+    private Integer role;
+    @TableField(value = "created_time")
     private LocalDateTime createdTime;
-    @TableField(value = "update_time")
+    @TableField(value = "updated_time")
     private LocalDateTime updatedTime;
 
 

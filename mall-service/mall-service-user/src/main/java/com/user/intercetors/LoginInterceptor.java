@@ -43,6 +43,9 @@ public class LoginInterceptor implements HandlerInterceptor {
             Map<String, Object> identity = new HashMap<>();
             identity.put("id", id);
             identity.put("username", claims.get("username"));
+            // 角色取自 claims，旧 token 无 role 视为普通用户 1（Integer，与下游 Auths 一致）
+            int role = claims.get("role") instanceof Number r ? r.intValue() : 1;
+            identity.put("role", role);
             ThreadLocalUtil.set(identity);
             //放行
             return true;

@@ -11,7 +11,7 @@ import java.util.List;
 @Mapper
 public interface UserAddressMapper extends BaseMapper<UserAddress> {
 
-    @Insert("INSERT INTO user_address (user_id,receiver_name,receiver_phone,province,city,district,detail_address,is_default,create_time)" +
+    @Insert("INSERT INTO user_address (user_id,receiver_name,receiver_phone,province,city,district,detail_address,is_default,created_time)" +
             "    VALUES (" +
             "        #{userId},#{receiverName},#{receiverPhone},#{province},#{city},#{district},#{detailAddress},#{isDefault},now())")
     void addUserAddress(UserAddress userAddress);

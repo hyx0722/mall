@@ -18,10 +18,15 @@ spring:
 
 
 server:
-  port: 9000
+  port: 9001
 # JWT 签名密钥（生产环境请通过环境变量注入，避免硬编码在仓库中）
 jwt:
   secret: Ai+QwjUslNR6e0NXAcvbhv4LxGsLqkMlrq980le2VDPuwc+USgBW59fnAg9+
+# 启动时若库中不存在管理员，则按以下账号自动创建（登录后可改密）
+mall:
+  admin:
+    username: admin
+    password: admin123
 ---
 spring:
   config:

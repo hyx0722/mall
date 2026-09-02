@@ -43,4 +43,52 @@ public interface OrderMapper extends BaseMapper<Order> {
 
     @Update("update orders set order_status=4, cancel_time=now() where order_no=#{orderNo} and order_status=0")
     int markCancelled(@Param("orderNo") String orderNo);
+
+    // 手动取消（买家本人 + 待付款）：返回受影响行数，0 表示不存在/非本人/已翻转，防并发重复取消
+    @Update("update orders set order_status=4, cancel_time=now() where id=#{id} and user_id=#{userId} and order_status=0")
+    int cancelUnpaidByIdAndUser(@Param("id") Long id, @Param("userId") Long userId);
+
+    // 手动取消（商家，归属校验已在 service 完成）：仅待付款，返回受影响行数
+    @Update("update orders set order_status=4, cancel_time=now() where id=#{id} and order_status=0")
+    int cancelUnpaidById(@Param("id") Long id);
+
+    // 商家：该订单里属于我（product.user_id=me）的明细行数
+    @Select("select count(*) from order_item oi " +
+            "join mall_service_product.product p on p.id=oi.product_id " +
+            "where oi.order_id=#{orderId} and p.user_id=#{userId}")
+    long countMyItemLines(@Param("orderId") Long orderId, @Param("userId") Long userId);
+
+    // 商家：该订单里属于其它卖家（product.user_id<>me）的明细行数，>0 即混单不可由本商家单独取消
+    @Select("select count(*) from order_item oi " +
+            "join mall_service_product.product p on p.id=oi.product_id " +
+            "where oi.order_id=#{orderId} and p.user_id<>#{userId}")
+    long countForeignItemLines(@Param("orderId") Long orderId, @Param("userId") Long userId);
+
+    // 商家：查看含自己商品的订单（跨库 product 判断归属），带买家名
+    @Select("<script>" +
+            "select distinct o.id,o.order_no,o.user_id,o.address_id,o.total_amount,o.discount_amount,o.order_status," +
+            "o.shipping_status,o.remark,o.created_time,o.updated_time,u.username as buyer_name " +
+            "from orders o left join mall_service_user.user u on u.id=o.user_id " +
+            "where exists (select 1 from order_item oi " +
+            "  join mall_service_product.product p on p.id=oi.product_id " +
+            "  where oi.order_id=o.id and p.user_id=#{userId}) " +
+            "order by o.id desc" +
+            "</script>")
+    List<Order> findSellerOrders(@Param("userId") Long userId);
+
+    // ---------- 管理员：查看所有订单 ----------
+
+    // 所有订单（无归属条件），可按订单状态过滤；跨库带买家用户名
+    @Select("<script>" +
+            "select o.id,o.order_no,o.user_id,o.address_id,o.total_amount,o.discount_amount,o.order_status,o.shipping_status,o.remark,o.created_time,o.updated_time,u.username as buyer_name " +
+            "from orders o left join mall_service_user.user u on u.id=o.user_id where 1=1" +
+            "<if test='status != null'> and o.order_status=#{status}</if>" +
+            " order by o.id desc" +
+            "</script>")
+    List<Order> findAdminOrders(@Param("status") Integer status);
+
+    // 任意订单头（无归属条件）；跨库带买家用户名
+    @Select("select o.id,o.order_no,o.user_id,o.address_id,o.total_amount,o.discount_amount,o.order_status,o.shipping_status,o.remark,o.created_time,o.updated_time,u.username as buyer_name " +
+            "from orders o left join mall_service_user.user u on u.id=o.user_id where o.id=#{id}")
+    Order findOrderById(@Param("id") Long id);
 }

@@ -20,9 +20,13 @@ public class FeignIdentityInterceptor implements RequestInterceptor {
             HttpServletRequest request = sra.getRequest();
             String userId = request.getHeader("X-User-Id");
             String username = request.getHeader("X-Username");
+            String role = request.getHeader("X-User-Role");
             if (userId != null && !userId.isBlank()) {
                 template.header("X-User-Id", userId);
                 template.header("X-Username", username);
+                if (role != null && !role.isBlank()) {
+                    template.header("X-User-Role", role);
+                }
             }
         }
     }

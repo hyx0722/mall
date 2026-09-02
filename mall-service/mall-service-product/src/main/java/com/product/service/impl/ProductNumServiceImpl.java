@@ -89,4 +89,19 @@ public class ProductNumServiceImpl implements ProductNumService {
             throw new BusinessException("商品不存在或无权操作");
         }
     }
+
+    @Override
+    @Transactional
+    public void adminChangeStatus(Long id, Integer status) {
+        if (id == null) {
+            throw new BusinessException("缺少商品 id");
+        }
+        if (status == null || (status != 0 && status != 1)) {
+            throw new BusinessException("商品状态只能为 0(下架)或 1(上架)");
+        }
+        int affected = productNumMapper.updateStatusById(id, status);
+        if (affected == 0) {
+            throw new BusinessException("商品不存在");
+        }
+    }
 }
