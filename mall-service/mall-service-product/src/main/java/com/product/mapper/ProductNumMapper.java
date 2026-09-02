@@ -30,15 +30,15 @@ public interface ProductNumMapper {
 
     // 商家编辑：仅更新传入的非空字段，带 user_id 归属条件防越权
     @Update("<script>update product set updated_time=now()" +
-            "<if test='name != null'> ,name=#{name}</if>" +
-            "<if test='categoryId != null'> ,category_id=#{categoryId}</if>" +
-            "<if test='subtitle != null'> ,subtitle=#{subtitle}</if>" +
-            "<if test='mainImage != null'> ,main_image=#{mainImage}</if>" +
-            "<if test='detail != null'> ,detail=#{detail}</if>" +
-            "<if test='price != null'> ,price=#{price}</if>" +
-            "<if test='originalPrice != null'> ,original_price=#{originalPrice}</if>" +
-            "<if test='status != null'> ,status=#{status}</if>" +
-            " where id=#{id} and user_id=#{userId}" +
+            "<if test='r.name != null'> ,name=#{r.name}</if>" +
+            "<if test='r.categoryId != null'> ,category_id=#{r.categoryId}</if>" +
+            "<if test='r.subtitle != null'> ,subtitle=#{r.subtitle}</if>" +
+            "<if test='r.mainImage != null'> ,main_image=#{r.mainImage}</if>" +
+            "<if test='r.detail != null'> ,detail=#{r.detail}</if>" +
+            "<if test='r.price != null'> ,price=#{r.price}</if>" +
+            "<if test='r.originalPrice != null'> ,original_price=#{r.originalPrice}</if>" +
+            "<if test='r.status != null'> ,status=#{r.status}</if>" +
+            " where id=#{r.id} and user_id=#{userId}" +
             "</script>")
     int updateProduct(@Param("r") UpdateProductRequest r, @Param("userId") Long userId);
 
