@@ -5,7 +5,7 @@ import com.model.bean.Product;
 import com.model.bean.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,13 +19,17 @@ public class InventoryNumController {
     @Autowired
     InventoryNumService inventoryNumService;
 
-    @Transactional
+    //为商品初始化库存：product_id 唯一键防重，重复初始化解 DuplicateKey 时显式报错
     @PostMapping("/addNumInventory")
     public Result addNumInventory(@RequestBody @Validated Product product){
         if(inventoryNumService.findNumInventory(product)!=null){
             return Result.error("该商品已存在库存中，请修改");
         }
-        inventoryNumService.addNumInventory(product);
+        try {
+            inventoryNumService.addNumInventory(product);
+        } catch (DuplicateKeyException e) {
+            return Result.error("该商品已存在库存中，请修改");
+        }
         return Result.success();
     }
 }

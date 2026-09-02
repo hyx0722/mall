@@ -33,6 +33,7 @@ CREATE TABLE `product` (
                            KEY `idx_user_id` (`user_id`),                -- 逻辑外键索引
                            KEY `idx_category_id` (`category_id`),
                            KEY `idx_name` (`name`),
+                           UNIQUE KEY `uk_user_name` (`user_id`,`name`),  -- 防止同一商家重复上架同名商品
                            CONSTRAINT `fk_product_category` FOREIGN KEY (`category_id`) REFERENCES `category` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品表';
 

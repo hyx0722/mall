@@ -6,5 +6,5 @@ public interface ProductNumService {
 
     void addNumProduct(Product product);
 
-    Product findNumProduct(Product product);
+    Product findNumProductByUserIdAndName(Integer userId, String name);
 }

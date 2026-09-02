@@ -1,58 +1,36 @@
 package com.product.intercetors;
 
-
-
 import com.model.util.ThreadLocalUtil;
-import com.product.util.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import java.util.HashMap;
 import java.util.Map;
 
-
+/**
+ * 下游服务身份拦截器：鉴权统一由网关(AuthGlobalFilter)完成。
+ * 本拦截器仅读取网关注入的 X-User-Id/X-Username 头并写入 ThreadLocal，
+ * 供 controller/service 取当前登录用户。头缺失（内部 Feign/公开接口）时直接放行。
+ */
 @Component
 public class TokenInterceptor implements HandlerInterceptor {
-    @Autowired
-    private StringRedisTemplate stringRedisTemplate;
-    @Autowired
-    private JwtUtil jwtUtil;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-        //令牌验证
-        String token = request.getHeader("Authorization");
-        try {
-            //1.解析token，取出用户id（token过期/伪造会在此抛异常）
-            Map<String, Object> claims = jwtUtil.parseToken(token);
-            Object idObj = claims.get("id");
-            if (idObj == null) {
-                throw new RuntimeException("token中缺少用户id");
-            }
-            Integer id = ((Number) idObj).intValue();
-            //2.校验Redis中保存的token是否与当前token一致（支持主动失效和单设备登录）
-            String redisToken = stringRedisTemplate.opsForValue().get("login:token:" + id);
-            if (redisToken == null || !redisToken.equals(token)) {
-                throw new RuntimeException("token已失效");
-            }
-            //3.把业务数据存储到ThreadLocal中
-            ThreadLocalUtil.set(claims);
-            //放行
-            return true;
-        } catch (Exception e) {
-            //http响应状态码为401
-            response.setStatus(401);
-            //不放行
-            return false;
+        String xUserId = request.getHeader("X-User-Id");
+        if (xUserId != null && !xUserId.isBlank()) {
+            Map<String, Object> identity = new HashMap<>();
+            identity.put("id", Integer.valueOf(xUserId));
+            identity.put("username", request.getHeader("X-Username"));
+            ThreadLocalUtil.set(identity);
         }
+        return true;
     }
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
-        //清空ThreadLocal中的数据
         ThreadLocalUtil.remove();
     }
 }

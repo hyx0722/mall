@@ -5,6 +5,7 @@ import com.product.mapper.ProductNumMapper;
 import com.product.service.ProductNumService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ProductNumServiceImpl implements ProductNumService {
@@ -12,12 +13,13 @@ public class ProductNumServiceImpl implements ProductNumService {
     ProductNumMapper productNumMapper;
 
     @Override
+    @Transactional
     public void addNumProduct(Product product) {
         productNumMapper.addNumProduct(product);
     }
 
     @Override
-    public Product findNumProduct(Product product) {
-        return productNumMapper.findNumProduct(product);
+    public Product findNumProductByUserIdAndName(Integer userId, String name) {
+        return productNumMapper.findNumProductByUserIdAndName(userId, name);
     }
 }

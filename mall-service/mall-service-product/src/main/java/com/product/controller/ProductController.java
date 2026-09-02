@@ -53,5 +53,14 @@ public class ProductController {
         return Result.success(products);
     }
 
+    //按 id 查商品（供 order 服务下单时同步拉取价格/名称快照）
+    @GetMapping("/findProductById")
+    public Result<Product> findProductById(@RequestParam Integer id){
+        Product product=productService.findProductById(id);
+        if(product==null){
+            return Result.error("商品不存在");
+        }
+        return Result.success(product);
+    }
 
 }

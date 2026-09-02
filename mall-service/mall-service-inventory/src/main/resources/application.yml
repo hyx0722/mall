@@ -3,7 +3,7 @@ spring:
     active: dev
     include: feign
   application:
-    name: mall-service-payment
+    name: mall-service-inventory
   cloud:
     nacos:
       server-addr: localhost:8848
@@ -13,6 +13,11 @@ spring:
         namespace: dev
         username: nacos
         password: nacos
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
 
 jwt:
   secret: Ai+QwjUslNR6e0NXAcvbhv4LxGsLqkMlrq980le2VDPuwc+USgBW59fnAg9+

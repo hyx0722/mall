@@ -6,6 +6,7 @@ import com.model.bean.Inventory;
 import com.model.bean.Product;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class InventoryNumServiceImpl implements InventoryNumService {
@@ -17,6 +18,7 @@ public class InventoryNumServiceImpl implements InventoryNumService {
     }
 
     @Override
+    @Transactional
     public void addNumInventory(Product product) {
         inventoryNumMapper.addNumInventory(product);
     }

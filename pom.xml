@@ -9,6 +9,7 @@
     <modules>
         <module>mall-service</module>
         <module>model</module>
+        <module>mall-gateway</module>
     </modules>
 
     <properties>

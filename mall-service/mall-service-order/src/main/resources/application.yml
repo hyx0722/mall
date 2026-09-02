@@ -13,6 +13,11 @@ spring:
         namespace: dev
         username: nacos
         password: nacos
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
 
 jwt:
   secret: Ai+QwjUslNR6e0NXAcvbhv4LxGsLqkMlrq980le2VDPuwc+USgBW59fnAg9+
@@ -49,6 +54,6 @@ spring:
     activate:
       on-profile: prod
     import:
-      - nacos:common.yaml?group=mall-service-orer
+      - nacos:common.yaml?group=mall-service-order
       - nacos:datasource.yaml?group=mall-service-order
 

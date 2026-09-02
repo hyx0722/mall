@@ -31,4 +31,8 @@ public interface ProductMapper {
             "limit #{size} offset #{start}")
     List<Product> findProductByUserId(@Param("start") Integer start, @Param("size") Integer size, @Param("userId") Integer userId);
 
+    // 供下单服务同步拉取商品快照（全字段）
+    @Select("select * from product where id=#{id}")
+    Product findProductById(@Param("id") Integer id);
+
 }

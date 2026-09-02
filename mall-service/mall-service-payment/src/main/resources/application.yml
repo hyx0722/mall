@@ -3,7 +3,7 @@ spring:
     active: dev
     include: feign
   application:
-    name: mall-service-product
+    name: mall-service-payment
   cloud:
     nacos:
       server-addr: localhost:8848

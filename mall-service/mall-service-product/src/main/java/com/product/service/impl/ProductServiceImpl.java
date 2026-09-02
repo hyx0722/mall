@@ -34,5 +34,9 @@ public class ProductServiceImpl implements ProductService {
         return  productMapper.findProductByUserId(start-1,size,userId);
     }
 
+    @Override
+    public Product findProductById(Integer id) {
+        return productMapper.findProductById(id);
+    }
 
 }
