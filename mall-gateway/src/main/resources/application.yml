@@ -1,0 +1,53 @@
+spring:
+  application:
+    name: mall-gateway
+  # 网关无数据源；父 pom 全局声明了 mybatis-plus starter（连带 JDBC 自动配置），这里显式排除
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+  cloud:
+    nacos:
+      server-addr: localhost:8848
+      username: nacos
+      password: nacos
+    gateway:
+      routes:
+        # 用户服务：/user/** -> mall-service-user 根路径
+        - id: mall-user
+          uri: lb://mall-service-user
+          predicates:
+            - Path=/user/**
+          filters:
+            - StripPrefix=1
+        # 商品服务
+        - id: mall-product
+          uri: lb://mall-service-product
+          predicates:
+            - Path=/product/**
+          filters:
+            - StripPrefix=1
+        # 订单服务
+        - id: mall-order
+          uri: lb://mall-service-order
+          predicates:
+            - Path=/order/**
+          filters:
+            - StripPrefix=1
+        # 库存服务
+        - id: mall-inventory
+          uri: lb://mall-service-inventory
+          predicates:
+            - Path=/inventory/**
+          filters:
+            - StripPrefix=1
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+
+server:
+  port: 9999
+
+jwt:
+  secret: Ai+QwjUslNR6e0NXAcvbhv4LxGsLqkMlrq980le2VDPuwc+USgBW59fnAg9+

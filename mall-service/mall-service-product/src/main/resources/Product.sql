@@ -49,3 +49,15 @@ CREATE TABLE `undo_log` (
                             PRIMARY KEY (`id`),
                             UNIQUE KEY `ux_undo_log` (`xid`,`branch_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COMMENT='AT模式回滚日志表';
+
+-- 3. 顶级分类种子数据（只针对新建库执行一次；已有库请手工执行下面的 INSERT，或用 /category/add 添加）
+USE mall_service_product;
+INSERT INTO `category` (`parent_id`,`name`,`sort_order`,`status`,`created_time`,`updated_time`) VALUES
+(0,'手机数码',1,1,NOW(),NOW()),
+(0,'家用电器',2,1,NOW(),NOW()),
+(0,'服饰鞋包',3,1,NOW(),NOW()),
+(0,'美妆个护',4,1,NOW(),NOW()),
+(0,'食品生鲜',5,1,NOW(),NOW()),
+(0,'图书文娱',6,1,NOW(),NOW()),
+(0,'母婴玩具',7,1,NOW(),NOW()),
+(0,'运动户外',8,1,NOW(),NOW());

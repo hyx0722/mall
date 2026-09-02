@@ -14,6 +14,11 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- 统一所有模块的编译目标（子模块不再单独覆盖 source/target） -->
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
+        <!-- 保留方法参数名，Spring 才能用反射绑定无显式 name 的 @RequestParam（Boot 默认开启） -->
+        <maven.compiler.parameters>true</maven.compiler.parameters>
         <spring-boot.version>4.0.0</spring-boot.version>
         <spring-cloud.version>2025.1.0</spring-cloud.version>
         <spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>

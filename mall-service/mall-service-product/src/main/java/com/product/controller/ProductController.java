@@ -2,6 +2,7 @@ package com.product.controller;
 
 
 
+import com.model.bean.PageBean;
 import com.model.bean.Product;
 import com.model.bean.Result;
 import com.product.service.ProductService;
@@ -61,6 +62,25 @@ public class ProductController {
             return Result.error("商品不存在");
         }
         return Result.success(product);
+    }
+
+    //买家浏览列表：关键词模糊 + 分类筛选 + 白名单排序 + 分页（page 从 1 起）
+    @GetMapping("/list")
+    public Result<PageBean<Product>> productList(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Integer categoryId,
+            @RequestParam(required = false, defaultValue = "newest") String sort,
+            @RequestParam(required = false, defaultValue = "1") Integer page,
+            @RequestParam(required = false, defaultValue = "10") Integer size
+    ){
+        if (page == null || page < 1) {
+            return Result.error("页码必须 >= 1");
+        }
+        if (size == null || size < 1 || size > 100) {
+            return Result.error("每页条数需在 1-100 之间");
+        }
+        PageBean<Product> pageBean = productService.findProductPage(keyword, categoryId, sort, page, size);
+        return Result.success(pageBean);
     }
 
 }

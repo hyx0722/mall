@@ -8,6 +8,16 @@
     </parent>
     <artifactId>model</artifactId>
 
-
+    <dependencies>
+        <!-- 供 com.model.web.GlobalExceptionHandler 编译（@RestControllerAdvice 等） -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+    </dependencies>
 
 </project>

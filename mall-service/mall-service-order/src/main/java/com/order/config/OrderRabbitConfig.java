@@ -1,0 +1,64 @@
+package com.order.config;
+
+import org.springframework.amqp.core.Binding;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.rabbit.annotation.EnableRabbit;
+import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@EnableRabbit
+
+/**
+ * 订单事件交换机/队列声明。
+ * exchange: mall.order.exchange (topic)
+ *   order 发布 order.created -> inventory 消费
+ *   inventory 回执 inventory.deducted / inventory.deduct_failed -> order 消费
+ */
+@Configuration
+public class OrderRabbitConfig {
+
+    public static final String ORDER_EXCHANGE = "mall.order.exchange";
+    public static final String RK_ORDER_CREATED = "order.created";
+    public static final String RK_DEDUCTED = "inventory.deducted";
+    public static final String RK_DEDUCT_FAILED = "inventory.deduct_failed";
+
+    public static final String Q_DEDUCTED = "q.order.deducted";
+    public static final String Q_DEDUCT_FAILED = "q.order.deduct.failed";
+
+    @Bean
+    public TopicExchange orderExchange() {
+        return new TopicExchange(ORDER_EXCHANGE, true, false);
+    }
+
+    // 扣减成功回执：order 侧消费 -> 订单置为待发货
+    @Bean
+    public Queue deductedQueue() {
+        return new Queue(Q_DEDUCTED, true);
+    }
+
+    // 扣减失败回执：order 侧消费 -> 订单取消
+    @Bean
+    public Queue deductFailedQueue() {
+        return new Queue(Q_DEDUCT_FAILED, true);
+    }
+
+    @Bean
+    public Binding bindDeducted() {
+        return BindingBuilder.bind(deductedQueue()).to(orderExchange()).with(RK_DEDUCTED);
+    }
+
+    @Bean
+    public Binding bindDeductFailed() {
+        return BindingBuilder.bind(deductFailedQueue()).to(orderExchange()).with(RK_DEDUCT_FAILED);
+    }
+
+    // 事件统一以 JSON 收发
+    @Bean
+    public MessageConverter messageConverter() {
+        return new Jackson2JsonMessageConverter();
+    }
+}
