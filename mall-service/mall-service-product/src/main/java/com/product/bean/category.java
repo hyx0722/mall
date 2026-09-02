@@ -19,9 +19,9 @@ import java.util.List;
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
 public class Category {
-    private Integer id;
+    private Long id;
     /** 父分类 id，0 表示顶级分类 */
-    private Integer parentId = 0;
+    private Long parentId = 0L;
     @NotBlank(message = "分类名称不能为空")
     @Size(max = 50, message = "分类名称最长 50 字")
     private String name;

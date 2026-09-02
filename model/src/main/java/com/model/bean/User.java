@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 public class User {
     @TableField(value = "id")
     @NotNull(message = "用户ID不能为空")
-    private Integer id;
+    private Long id;
     @TableField(value = "username")
     @NotBlank(message = "用户名不能为空")
     @Size(min = 2, max = 20, message = "用户名长度必须在2-20之间")

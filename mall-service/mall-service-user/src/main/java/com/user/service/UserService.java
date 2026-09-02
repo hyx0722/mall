@@ -17,7 +17,7 @@ public interface UserService {
 
     void delete(String username);
 
-    void update(Integer id, String phone, String email);
+    void update(Long id, String phone, String email);
 
     void updateAvatar(String avatar);
     //更新密码

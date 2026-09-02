@@ -5,6 +5,7 @@ import com.model.bean.Product;
 import com.model.bean.Result;
 import com.model.event.InventoryResultEvent;
 import com.model.event.OrderCreatedEvent;
+import com.model.exception.BusinessException;
 import com.model.util.ThreadLocalUtil;
 import com.order.bean.CreateOrderRequest;
 import com.order.bean.OrderItem;
@@ -42,14 +43,20 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public List<Order> findAllOrder() {
         Map<String, Object> map = ThreadLocalUtil.get();
-        Integer userId = (Integer) map.get("id");
+        if (map == null || map.get("id") == null) {
+            throw new BusinessException("请先登录");
+        }
+        Long userId = (Long) map.get("id");
         return orderMapper.findAllOrder(userId);
     }
 
     @Override
-    public Order findDetailOrder(Integer id) {
+    public Order findDetailOrder(Long id) {
         Map<String, Object> map = ThreadLocalUtil.get();
-        Integer userId = (Integer) map.get("id");
+        if (map == null || map.get("id") == null) {
+            throw new BusinessException("请先登录");
+        }
+        Long userId = (Long) map.get("id");
         return orderMapper.findDetailOrder(id,userId);
     }
 
@@ -65,9 +72,9 @@ public class OrderServiceImpl implements OrderService {
     public Order createOrder(CreateOrderRequest request) {
         Map<String, Object> map = ThreadLocalUtil.get();
         if (map == null || map.get("id") == null) {
-            throw new RuntimeException("未登录或缺少用户身份");
+            throw new BusinessException("请先登录");
         }
-        Integer userId = (Integer) map.get("id");
+        Long userId = (Long) map.get("id");
 
         String orderNo = genOrderNo(userId);
         BigDecimal totalAmount = BigDecimal.ZERO;
@@ -77,11 +84,11 @@ public class OrderServiceImpl implements OrderService {
         for (CreateOrderRequest.Item reqItem : request.getItems()) {
             Result<Product> productResult = productFeignClient.findProductById(reqItem.getProductId());
             if (productResult == null || productResult.getData() == null) {
-                throw new RuntimeException("商品不存在或服务不可用: id=" + reqItem.getProductId());
+                throw new BusinessException("商品不存在或服务不可用: id=" + reqItem.getProductId());
             }
             Product product = productResult.getData();
             if (product.getStatus() != null && product.getStatus() == 0) {
-                throw new RuntimeException("商品已下架: id=" + reqItem.getProductId());
+                throw new BusinessException("商品已下架: id=" + reqItem.getProductId());
             }
             BigDecimal qty = BigDecimal.valueOf(reqItem.getQuantity());
             BigDecimal lineTotal = product.getPrice().multiply(qty);
@@ -115,7 +122,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         // 事务提交后再发事件，避免下游在订单未落库时就消费
-        final Integer orderId = order.getId();
+        final Long orderId = order.getId();
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
@@ -147,7 +154,7 @@ public class OrderServiceImpl implements OrderService {
         orderMapper.markDeductFailed(event.getOrderNo());
     }
 
-    private String genOrderNo(Integer userId) {
+    private String genOrderNo(Long userId) {
         return "NO" + System.currentTimeMillis()
                 + String.format("%04d", ThreadLocalRandom.current().nextInt(10000))
                 + String.format("%04d", userId % 10000);

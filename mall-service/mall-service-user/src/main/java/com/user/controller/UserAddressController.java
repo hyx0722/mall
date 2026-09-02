@@ -21,7 +21,7 @@ public class UserAddressController {
     @PostMapping("/addUserAddress")
     public Result addUserAddress(@RequestBody @Validated UserAddress userAddress){
         Map<String, Object> map = ThreadLocalUtil.get();
-        Integer id = (Integer) map.get("id");
+        Long id = (Long) map.get("id");
         userAddress.setUserId(id);
         userAddressService.addUserAddress(userAddress);
         return Result.success();
@@ -29,20 +29,20 @@ public class UserAddressController {
 
     //修改用户具体收货地址
     @PostMapping("/updateUserAddressById")
-    public Result updateUserAddressById(@RequestBody @Validated UserAddress userAddress,@RequestParam("id") Integer id){
+    public Result updateUserAddressById(@RequestBody @Validated UserAddress userAddress,@RequestParam("id") Long id){
         userAddressService.updateUserAddressById(userAddress,id);
         return Result.success();
     }
 
     @DeleteMapping("/deleteUserAddress")
-    public Result deleteUserAddress( @RequestParam("id") Integer id){
+    public Result deleteUserAddress( @RequestParam("id") Long id){
         userAddressService.deleteUserAddress(id);
         return Result.success();
     }
 
     //查找用户具体某个收货地址
     @GetMapping("/selectUserDetailAddress")
-    public Result<UserAddress> selectUserDetailAddress(@RequestParam("id") Integer id){
+    public Result<UserAddress> selectUserDetailAddress(@RequestParam("id") Long id){
         return Result.success(userAddressService.selectUserDetailAddress(id));
     }
 
@@ -50,7 +50,7 @@ public class UserAddressController {
     @GetMapping("/selectUserAddress")
     public Result<List<UserAddress>> selectUserAddress(){
         Map<String,Object> map = ThreadLocalUtil.get();
-        Integer userId = (Integer) map.get("id");
+        Long userId = (Long) map.get("id");
         return Result.success(userAddressService.selectUserAddress(userId));
     }
 

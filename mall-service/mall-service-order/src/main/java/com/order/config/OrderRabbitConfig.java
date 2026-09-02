@@ -1,5 +1,6 @@
 package com.order.config;
 
+import com.mall.common.rabbit.RabbitTopology;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Queue;
@@ -17,17 +18,18 @@ import org.springframework.context.annotation.Configuration;
  * exchange: mall.order.exchange (topic)
  *   order 发布 order.created -> inventory 消费
  *   inventory 回执 inventory.deducted / inventory.deduct_failed -> order 消费
+ * 拓扑常量统一定义于 {@link RabbitTopology}，避免 order/inventory 两端漂移。
  */
 @Configuration
 public class OrderRabbitConfig {
 
-    public static final String ORDER_EXCHANGE = "mall.order.exchange";
-    public static final String RK_ORDER_CREATED = "order.created";
-    public static final String RK_DEDUCTED = "inventory.deducted";
-    public static final String RK_DEDUCT_FAILED = "inventory.deduct_failed";
+    public static final String ORDER_EXCHANGE = RabbitTopology.ORDER_EXCHANGE;
+    public static final String RK_ORDER_CREATED = RabbitTopology.RK_ORDER_CREATED;
+    public static final String RK_DEDUCTED = RabbitTopology.RK_DEDUCTED;
+    public static final String RK_DEDUCT_FAILED = RabbitTopology.RK_DEDUCT_FAILED;
 
-    public static final String Q_DEDUCTED = "q.order.deducted";
-    public static final String Q_DEDUCT_FAILED = "q.order.deduct.failed";
+    public static final String Q_DEDUCTED = RabbitTopology.Q_DEDUCTED;
+    public static final String Q_DEDUCT_FAILED = RabbitTopology.Q_DEDUCT_FAILED;
 
     @Bean
     public TopicExchange orderExchange() {

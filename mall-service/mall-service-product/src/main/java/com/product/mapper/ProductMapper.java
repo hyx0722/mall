@@ -28,11 +28,11 @@ public interface ProductMapper {
     @Select("select id,name,subtitle,main_image,price,status from product " +
             "where user_id=#{userId} " +
             "limit #{size} offset #{offset}")
-    List<Product> findProductByUserId(@Param("offset") Integer offset, @Param("size") Integer size, @Param("userId") Integer userId);
+    List<Product> findProductByUserId(@Param("offset") Integer offset, @Param("size") Integer size, @Param("userId") Long userId);
 
     // 供下单服务同步拉取商品快照（全字段）
     @Select("select * from product where id=#{id}")
-    Product findProductById(@Param("id") Integer id);
+    Product findProductById(@Param("id") Long id);
 
     // 浏览列表：关键词模糊 + 分类筛选 + 白名单排序 + 分页（仅 status=1 在售）
     @Select("<script>" +
@@ -49,7 +49,7 @@ public interface ProductMapper {
             " limit #{size} offset #{offset}" +
             "</script>")
     List<Product> findProductList(@Param("keyword") String keyword,
-                                  @Param("categoryId") Integer categoryId,
+                                  @Param("categoryId") Long categoryId,
                                   @Param("sort") String sort,
                                   @Param("offset") int offset,
                                   @Param("size") int size);
@@ -61,6 +61,6 @@ public interface ProductMapper {
             "<if test='categoryId != null'> and category_id=#{categoryId}</if>" +
             "</script>")
     long countProductList(@Param("keyword") String keyword,
-                          @Param("categoryId") Integer categoryId);
+                          @Param("categoryId") Long categoryId);
 
 }

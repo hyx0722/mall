@@ -17,15 +17,15 @@ import java.time.LocalDateTime;
 public class Order {
     @TableField("id")
     @NotNull(message = "订单ID不能为0")
-    private Integer id;
+    private Long id;
     @TableField("order_no")
     @NotNull(message = "订单编号（业务唯一）不能为0")
     private String orderNo;
     @TableField("user_id")
     @NotNull(message = "买家用户ID不能为0")
-    private Integer userId;
+    private Long userId;
     @TableField("address_id")
-    private Integer addressId;
+    private Long addressId;
     @TableField("total_amount")
     private BigDecimal totalAmount;
     @TableField("discount_amount")

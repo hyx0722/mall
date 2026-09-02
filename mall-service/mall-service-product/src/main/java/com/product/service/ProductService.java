@@ -14,10 +14,10 @@ public interface ProductService {
 
   List<Product> findProductByUserId(Integer start,Integer size);
 
-  Product findProductById(Integer id);
+  Product findProductById(Long id);
 
   /** 买家浏览：关键词模糊 + 分类筛选 + 白名单排序 + 分页，返回总数（page 从 1 起） */
-  PageBean<Product> findProductPage(String keyword, Integer categoryId, String sort, Integer page, Integer size);
+  PageBean<Product> findProductPage(String keyword, Long categoryId, String sort, Integer page, Integer size);
 }
 
 

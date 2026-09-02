@@ -13,9 +13,6 @@ import jakarta.validation.constraints.Pattern;
 
 import lombok.extern.slf4j.Slf4j;
 import org.hibernate.validator.constraints.URL;
-import org.redisson.api.RBloomFilter;
-
-import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -33,34 +30,23 @@ import java.util.concurrent.TimeUnit;
 @Validated
 public class UserController {
 
-    private RBloomFilter<String> bloomFilter;
     @Autowired
     UserService userService;
     @Autowired
     private BCryptPasswordEncoder passwordEncoder;
     @Autowired
-    RedissonClient redissonClient;
-    @Autowired
     StringRedisTemplate stringRedisTemplate;
     @Autowired
     private JwtUtil jwtUtil;
-
-    private final String bloomFilterName="UserBloomFilter";
 
     //注册
     @PostMapping("/register")
     public Result register(@Pattern(regexp = "^\\S{5,16}$") @RequestParam("username") String username,
                            @RequestParam("password") @Pattern(regexp = "^\\S{5,16}$") String password){
-        //布隆过滤器不存在则初始化，作为注册快速去重的缓存层
-        bloomFilter = redissonClient.getBloomFilter(bloomFilterName);
-        if (!bloomFilter.isExists()) {
-            bloomFilter.tryInit(100000L, 0.01);
-        }
-        //以数据库为准判断用户是否已注册（布隆过滤器存在误报且不支持删除，不能作为唯一判断依据）
+        //以数据库为准判断用户是否已注册（唯一键 uk_username 兜底并发重复注册）
         if (userService.findPasswordByUsername(username) != null) {
             return Result.error("注册失败用户已经存在");
         }
-        bloomFilter.add(username);
         userService.registerInsert(username, password);
         return Result.success();
     }
@@ -118,7 +104,7 @@ public class UserController {
     public Result<String> delete() {
         Map<String, Object> map = ThreadLocalUtil.get();
         String username = (String) map.get("username");
-        Integer id = (Integer) map.get("id");
+        Long id = (Long) map.get("id");
         userService.delete(username);
         //清理该用户的登录token，使其立即失效
         stringRedisTemplate.delete("login:token:" + id);
@@ -131,7 +117,7 @@ public class UserController {
     @PutMapping("/update")
     public Result update(@RequestBody @Validated UserUpdateDTO dto) {
         Map<String, Object> map = ThreadLocalUtil.get();
-        Integer id = (Integer) map.get("id");
+        Long id = (Long) map.get("id");
         userService.update(id, dto.getPhone(), dto.getEmail());
         return Result.success();
     }
@@ -162,7 +148,7 @@ public class UserController {
         //原密码是否正确（matches(明文, 密文)）
         Map<String, Object> map = ThreadLocalUtil.get();
         String username = (String) map.get("username");
-        Integer id = (Integer) map.get("id");
+        Long id = (Long) map.get("id");
         String userPassword = userService.findPasswordByUsername(username);
         if (!passwordEncoder.matches(oldPwd, userPassword)) {
             return Result.error("原密码填写不正确");
@@ -183,7 +169,7 @@ public class UserController {
     @PostMapping("/addReceiverDetail")
     public Result addReceiverDetail(@RequestBody @Validated UserAddress userAddress){
         Map<String, Object> map = ThreadLocalUtil.get();
-        Integer userId= (Integer) map.get("id");
+        Long userId= (Long) map.get("id");
         userAddress.setUserId(userId);
         userService.addReceiverDetail(userAddress);
         return Result.success();

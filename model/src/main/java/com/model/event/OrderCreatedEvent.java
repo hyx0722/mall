@@ -15,17 +15,17 @@ public class OrderCreatedEvent {
     private String orderNo;
 
     /** 订单主键 id（写库存流水时关联 orders.id） */
-    private Integer orderId;
+    private Long orderId;
 
     /** 下单用户 id */
-    private Integer userId;
+    private Long userId;
 
     /** 订单明细（仅商品与数量） */
     private List<Item> items;
 
     @Data
     public static class Item {
-        private Integer productId;
+        private Long productId;
         private Integer quantity;
     }
 }

@@ -16,11 +16,11 @@ public interface OrderMapper extends BaseMapper<Order> {
 
     @Select("select id,order_no,user_id,total_amount,order_status,shipping_status from orders " +
             "where user_id=#{userId}")
-    List<Order> findAllOrder(@Param("userId") Integer userId);
+    List<Order> findAllOrder(@Param("userId") Long userId);
 
     @Select("select * from orders " +
             "where id=#{id} and user_id=#{userId}")
-    Order findDetailOrder(@Param("id") Integer id,@Param("userId") Integer userId);
+    Order findDetailOrder(@Param("id") Long id,@Param("userId") Long userId);
 
     // 创建订单（初始状态 0-待付款），由数据库自增主键回填 id
     @Insert("insert into orders(order_no,user_id,address_id,total_amount,discount_amount,order_status,remark,created_time,updated_time) " +

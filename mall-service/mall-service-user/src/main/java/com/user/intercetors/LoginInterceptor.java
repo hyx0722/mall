@@ -11,6 +11,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import java.util.HashMap;
 import java.util.Map;
 
 
@@ -32,14 +33,17 @@ public class LoginInterceptor implements HandlerInterceptor {
             if (idObj == null) {
                 throw new RuntimeException("token中缺少用户id");
             }
-            Integer id = ((Number) idObj).intValue();
+            long id = ((Number) idObj).longValue();
             //2.校验Redis中保存的token是否与当前token一致（支持主动失效和单设备登录）
             String redisToken = stringRedisTemplate.opsForValue().get("login:token:" + id);
             if (redisToken == null || !redisToken.equals(token)) {
                 throw new RuntimeException("token已失效");
             }
-            //3.把业务数据存储到ThreadLocal中
-            ThreadLocalUtil.set(claims);
+            //3.把业务数据存储到ThreadLocal中（id 统一 Long，与下游服务一致）
+            Map<String, Object> identity = new HashMap<>();
+            identity.put("id", id);
+            identity.put("username", claims.get("username"));
+            ThreadLocalUtil.set(identity);
             //放行
             return true;
         } catch (Exception e) {

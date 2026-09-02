@@ -31,7 +31,7 @@ public class InventoryNumServiceImpl implements InventoryNumService {
 
     @Override
     @Transactional
-    public void restock(Integer userId, Integer productId, Integer qty) {
+    public void restock(Long userId, Long productId, Integer qty) {
         if (userId == null) {
             throw new BusinessException("请先登录");
         }

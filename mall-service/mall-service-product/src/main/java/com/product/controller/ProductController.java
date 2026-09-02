@@ -56,7 +56,7 @@ public class ProductController {
 
     //按 id 查商品（供 order 服务下单时同步拉取价格/名称快照）
     @GetMapping("/findProductById")
-    public Result<Product> findProductById(@RequestParam Integer id){
+    public Result<Product> findProductById(@RequestParam Long id){
         Product product=productService.findProductById(id);
         if(product==null){
             return Result.error("商品不存在");
@@ -68,7 +68,7 @@ public class ProductController {
     @GetMapping("/list")
     public Result<PageBean<Product>> productList(
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Integer categoryId,
+            @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false, defaultValue = "newest") String sort,
             @RequestParam(required = false, defaultValue = "1") Integer page,
             @RequestParam(required = false, defaultValue = "10") Integer size

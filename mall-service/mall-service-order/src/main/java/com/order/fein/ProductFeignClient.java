@@ -12,5 +12,5 @@ public interface ProductFeignClient {
 
     // 下单时同步拉取商品快照（价格/名称/主图），供订单明细落库
     @GetMapping("/findProductById")
-    Result<Product> findProductById(@RequestParam("id") Integer id);
+    Result<Product> findProductById(@RequestParam("id") Long id);
 }

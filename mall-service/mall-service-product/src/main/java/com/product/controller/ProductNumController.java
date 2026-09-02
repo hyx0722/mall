@@ -27,9 +27,10 @@ public class ProductNumController {
     @Autowired
     ProductNumService productNumService;
 
-    //商家上架商品：同 user_id+name 重复上架显式报错；唯一键在并发下兜底
+    //商家上架商品：同 user_id+name 重复上架显式报错；唯一键在并发下兜底。
+    //insert 后主键已回填，返回带 id 的实体，供“建商品->初始化库存”链路复用
     @PostMapping("/addNumProduct")
-    public Result addNumProduct(@RequestBody @Validated Product product){
+    public Result<Product> addNumProduct(@RequestBody @Validated Product product){
         if (productNumService.findNumProductByUserIdAndName(product.getUserId(), product.getName()) != null){
             return Result.error("该商品已存在，请在已有商品页面修改");
         }
@@ -39,7 +40,7 @@ public class ProductNumController {
             //并发双击等场景命中唯一键
             return Result.error("该商品已存在，请在已有商品页面修改");
         }
-        return Result.success();
+        return Result.success(product);
     }
 
     //商家编辑自己的商品（部分更新），归属以登录态 user_id 为准
@@ -51,13 +52,13 @@ public class ProductNumController {
 
     //商家上/下架自己的商品
     @PutMapping("/shelfProduct")
-    public Result shelfProduct(@RequestParam Integer id, @RequestParam Integer status) {
+    public Result shelfProduct(@RequestParam Long id, @RequestParam Integer status) {
         productNumService.changeProductStatus(currentUserId(), id, status);
         return Result.success();
     }
 
-    private Integer currentUserId() {
+    private Long currentUserId() {
         Map<String, Object> map = ThreadLocalUtil.get();
-        return (map == null) ? null : (Integer) map.get("id");
+        return (map == null) ? null : (Long) map.get("id");
     }
 }

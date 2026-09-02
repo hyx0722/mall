@@ -19,16 +19,8 @@ spring:
     username: guest
     password: guest
 
-jwt:
-  secret: Ai+QwjUslNR6e0NXAcvbhv4LxGsLqkMlrq980le2VDPuwc+USgBW59fnAg9+
-
 server:
   port: 6000
-
-
-logging:
-  level:
-    com.hyx.order.feign: debug
 ---
 spring:
   config:

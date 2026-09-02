@@ -16,12 +16,12 @@ import java.time.LocalDateTime;
 public class InventoryLog {
     @TableField("id")
     @NotNull(message = "流水ID不能为空")
-    private Integer id;
+    private Long id;
     @TableField("product_id")
     @NotNull(message = "商品ID不能为空")
-    private Integer productId;
+    private Long productId;
     @TableField("order_id")
-    private Integer orderId;
+    private Long orderId;
     @TableField("change_type")
     @NotNull(message = "变动类型不能为空")
     private Integer changeType;

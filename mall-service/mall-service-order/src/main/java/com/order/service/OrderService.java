@@ -10,7 +10,7 @@ public interface OrderService {
 
     List<Order> findAllOrder();
 
-    Order findDetailOrder(Integer id);
+    Order findDetailOrder(Long id);
 
     /** 下单：本地事务写入订单+明细，提交后发布 order.created 事件 */
     Order createOrder(CreateOrderRequest request);

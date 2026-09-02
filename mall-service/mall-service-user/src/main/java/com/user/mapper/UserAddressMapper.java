@@ -19,14 +19,14 @@ public interface UserAddressMapper extends BaseMapper<UserAddress> {
     @Update("UPDATE user_address set receiver_name=#{receiverName},receiver_phone=#{receiverPhone},province=#{province}," +
             "city=#{city},district=#{district},detail_address=#{detailAddress},is_default=#{isDefault} " +
             "where id=#{id} and user_id=#{userId}")
-    void updateUserAddressById(UserAddress userAddress,@Param("id") Integer id,@Param("userId")Integer userId);
+    void updateUserAddressById(UserAddress userAddress,@Param("id") Long id,@Param("userId")Long userId);
     @Delete("delete from user_address where id=#{id} and user_id=#{userId}")
-    void deleteUserAddress(@Param("id") Integer id, @Param("userId") Integer userId);
+    void deleteUserAddress(@Param("id") Long id, @Param("userId") Long userId);
 
     @Select("select * from user_address where id=#{id} and user_id=#{userId}")
-    UserAddress selectUserDetailAddress(@Param("id") Integer id,@Param("userId")Integer userId);
+    UserAddress selectUserDetailAddress(@Param("id") Long id,@Param("userId")Long userId);
 
     @Select("select * from user_address where user_id=#{userId} order by id")
-    List<UserAddress> selectUserAddress(@Param("userId") Integer userId);
+    List<UserAddress> selectUserAddress(@Param("userId") Long userId);
 
 }

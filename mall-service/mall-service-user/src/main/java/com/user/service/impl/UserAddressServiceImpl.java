@@ -22,26 +22,26 @@ public class UserAddressServiceImpl implements UserAddressService {
         userAddressMapper.addUserAddress(userAddress);
     };
 
-    public void updateUserAddressById(UserAddress userAddress,Integer id){
+    public void updateUserAddressById(UserAddress userAddress, Long id){
         Map<String,Object> map = ThreadLocalUtil.get();
-        Integer userId = (Integer) map.get("id");
+        Long userId = (Long) map.get("id");
         userAddressMapper.updateUserAddressById(userAddress,id,userId);
     }
 
-    public void deleteUserAddress(Integer id){
+    public void deleteUserAddress(Long id){
         Map<String,Object> map = ThreadLocalUtil.get();
-        Integer userId = (Integer) map.get("id");
-        userAddressMapper.deleteById(id);
+        Long userId = (Long) map.get("id");
+        // 仅按 id+归属条件删除，禁止越权删他人地址（勿用 BaseMapper.deleteById）
         userAddressMapper.deleteUserAddress(id,userId);
     }
 
-    public UserAddress selectUserDetailAddress(Integer id){
+    public UserAddress selectUserDetailAddress(Long id){
         Map<String,Object> map = ThreadLocalUtil.get();
-        Integer userId = (Integer) map.get("id");
+        Long userId = (Long) map.get("id");
         return userAddressMapper.selectUserDetailAddress(id,userId);
     };
 
-    public List<UserAddress> selectUserAddress(Integer userId){
+    public List<UserAddress> selectUserAddress(Long userId){
         return userAddressMapper.selectUserAddress(userId);
     }
 }

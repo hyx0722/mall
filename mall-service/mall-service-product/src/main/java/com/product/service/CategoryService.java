@@ -7,7 +7,7 @@ import java.util.List;
 public interface CategoryService {
 
     /** 浏览：某父分类下的启用子分类（parentId=0 即顶级分类） */
-    List<Category> listEnabledByParent(Integer parentId);
+    List<Category> listEnabledByParent(Long parentId);
 
     /** 浏览：启用分类的完整树（根节点为顶级分类） */
     List<Category> tree();

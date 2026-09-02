@@ -11,8 +11,6 @@ spring:
             logger-level: FULL
             connect-timeout: 3000
             read-timeout: 5000
-#            request-interceptors:
-#              - com.hyx.order.interceptor.XTokenInterceptor
     sentinel:
       transport:
         dashboard: localhost:8080

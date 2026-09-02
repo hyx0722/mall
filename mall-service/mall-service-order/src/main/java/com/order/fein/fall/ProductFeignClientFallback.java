@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 public class ProductFeignClientFallback implements ProductFeignClient {
 
     @Override
-    public Result<Product> findProductById(Integer id) {
+    public Result<Product> findProductById(Long id) {
         return Result.error("商品服务暂不可用");
     }
 }

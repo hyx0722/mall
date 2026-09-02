@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.example</groupId>
+        <artifactId>mall</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+    <artifactId>mall-common</artifactId>
+
+    <!--
+        业务服务间逐字复制的公共件收拢于此：
+        - IdentityInterceptor（读网关注入的 X-User-Id/X-Username -> ThreadLocal）
+        - CommonWebConfig（注册上面拦截器的 WebMvcConfigurer，供各服务 @Import）
+        - FeignIdentityInterceptor / CommonFeignConfig（Feign 请求透传身份头 + Retryer/日志）
+        - RabbitTopology（order/inventory 共享的交换机/路由键/队列名常量）
+
+        边界：
+        - 本模块供 mall-service 下各业务服务使用（它们都是 servlet web 应用），
+          因此可以依赖 servlet/webmvc；gateway 是 webflux 且独立，不依赖本模块。
+        - model 不依赖本模块（无 servlet 约束），本模块依赖 model（ThreadLocalUtil）。
+    -->
+    <dependencies>
+        <!-- 共享基础：ThreadLocalUtil 等 -->
+        <dependency>
+            <groupId>org.example</groupId>
+            <artifactId>model</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+        <!-- webmvc：HandlerInterceptor / WebMvcConfigurer / servlet API -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- feign-core：RequestInterceptor / Retryer / Logger.Level（版本由 spring-cloud BOM 管理） -->
+        <dependency>
+            <groupId>io.github.openfeign</groupId>
+            <artifactId>feign-core</artifactId>
+        </dependency>
+    </dependencies>
+
+</project>

@@ -33,14 +33,14 @@ public interface UserMapper  extends BaseMapper<User> {
             "<if test='phone != null'>,phone=#{phone}</if>" +
             "<if test='email != null'>,email=#{email}</if>" +
             " where id=#{id}</script>")
-    void update(@Param("id") Integer id, @Param("phone") String phone, @Param("email") String email);
+    void update(@Param("id") Long id, @Param("phone") String phone, @Param("email") String email);
 
     //更新用户头像
     @Update("update user set avatar=#{avatar},updated_time=now() where id=#{id}")
-    void updateAvatar(@Param("avatar") String avatar, @Param("id") Integer id);
+    void updateAvatar(@Param("avatar") String avatar, @Param("id") Long id);
     //更新用户密码
     @Update("update user set password=#{hashcode},updated_time=now() where id=#{id}")
-    void updatePwd(@Param("hashcode") String hashcode, @Param("id") Integer id);
+    void updatePwd(@Param("hashcode") String hashcode, @Param("id") Long id);
 
     @Insert("<script>" +
             "INSERT INTO user_address " +

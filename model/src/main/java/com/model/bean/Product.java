@@ -16,15 +16,15 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @TableName("product")
 public class Product {
+    // id 由数据库自增生成：同一实体同时作创建入参与展示出参，创建时不要求也不允许前端填主键
     @TableField("id")
-    @NotNull(message = "商品id不能为0")
-    private Integer id;
+    private Long id;
     @TableField("user_id")
     @NotNull(message = "上架者id不能为0")
-    private Integer userId;
+    private Long userId;
     @TableField("category_id")
     @NotNull(message = "分类id不能为0")
-    private Integer categoryId;
+    private Long categoryId;
     @TableField("name")
     @NotNull(message = "商品名字不能为0")
     private String name;

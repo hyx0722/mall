@@ -28,12 +28,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
-        <!-- 解析 JWT（父 dependencyManagement 未管理版本，显式给出） -->
-        <dependency>
-            <groupId>com.auth0</groupId>
-            <artifactId>java-jwt</artifactId>
-            <version>4.6.0</version>
-        </dependency>
+        <!-- java-jwt 版本由父 pom 统一管理（解析 JWT） -->
     </dependencies>
 
 </project>

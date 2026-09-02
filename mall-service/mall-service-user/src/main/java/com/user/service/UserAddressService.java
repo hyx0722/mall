@@ -8,11 +8,11 @@ import java.util.List;
 public interface UserAddressService {
     void addUserAddress(UserAddress userAddress);
 
-    void updateUserAddressById(UserAddress userAddress,Integer id);
+    void updateUserAddressById(UserAddress userAddress, Long id);
 
-    void deleteUserAddress(Integer id);
+    void deleteUserAddress(Long id);
 
-    UserAddress selectUserDetailAddress(Integer id);
+    UserAddress selectUserDetailAddress(Long id);
 
-    List<UserAddress> selectUserAddress(Integer userId);
+    List<UserAddress> selectUserAddress(Long userId);
 }

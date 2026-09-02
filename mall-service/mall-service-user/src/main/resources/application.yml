@@ -22,10 +22,6 @@ server:
 # JWT 签名密钥（生产环境请通过环境变量注入，避免硬编码在仓库中）
 jwt:
   secret: Ai+QwjUslNR6e0NXAcvbhv4LxGsLqkMlrq980le2VDPuwc+USgBW59fnAg9+
-
-logging:
-  level:
-    com.hyx.order.feign: debug
 ---
 spring:
   config:

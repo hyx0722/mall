@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class ProductFeignClientFallback implements ProductFeignClient {
     @Override
-    public Result addNumProduct(Product product) {
+    public Result<Product> addNumProduct(Product product) {
         return Result.error("添加商品失败");
     }
 }

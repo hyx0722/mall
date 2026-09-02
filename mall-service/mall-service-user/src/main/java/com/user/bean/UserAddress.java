@@ -15,9 +15,9 @@ import java.time.LocalDateTime;
 @TableName("user_address")
 public class UserAddress {
     @TableField(value = "id")
-    private Integer id;
+    private Long id;
     @TableField(value = "user_id")
-    private Integer userId;
+    private Long userId;
     @TableField(value = "receiver_name")
     @NotNull(message = "收货人姓名不能为空")
     private String receiverName;

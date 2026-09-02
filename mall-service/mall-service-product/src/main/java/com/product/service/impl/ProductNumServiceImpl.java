@@ -25,13 +25,13 @@ public class ProductNumServiceImpl implements ProductNumService {
     }
 
     @Override
-    public Product findNumProductByUserIdAndName(Integer userId, String name) {
+    public Product findNumProductByUserIdAndName(Long userId, String name) {
         return productNumMapper.findNumProductByUserIdAndName(userId, name);
     }
 
     @Override
     @Transactional
-    public void updateProduct(Integer userId, UpdateProductRequest r) {
+    public void updateProduct(Long userId, UpdateProductRequest r) {
         if (userId == null) {
             throw new BusinessException("请先登录");
         }
@@ -74,7 +74,7 @@ public class ProductNumServiceImpl implements ProductNumService {
 
     @Override
     @Transactional
-    public void changeProductStatus(Integer userId, Integer id, Integer status) {
+    public void changeProductStatus(Long userId, Long id, Integer status) {
         if (userId == null) {
             throw new BusinessException("请先登录");
         }

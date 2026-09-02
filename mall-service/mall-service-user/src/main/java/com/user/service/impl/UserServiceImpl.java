@@ -51,21 +51,21 @@ public class UserServiceImpl  implements UserService {
     }
 
     @Override
-    public void update(Integer id, String phone, String email) {
+    public void update(Long id, String phone, String email) {
         userMapper.update(id, phone, email);
     }
 
     @Override
     public void updateAvatar(String avatar) {
         Map<String,Object> map = ThreadLocalUtil.get();
-        Integer id = (Integer) map.get("id");
+        Long id = (Long) map.get("id");
         userMapper.updateAvatar(avatar,id);
     }
 
     @Override
     public void updatePwd(String newPwd) {
         Map<String,Object> map = ThreadLocalUtil.get();
-        Integer id = (Integer) map.get("id");
+        Long id = (Long) map.get("id");
         userMapper.updatePwd(passwordEncoder.encode(newPwd),id);
     }
 

@@ -26,7 +26,7 @@ public class OrderController {
     }
     //查看自己的某个详细订单
     @GetMapping("findDetailOrder")
-    public Result<Order> findDetailOrder(Integer id){
+    public Result<Order> findDetailOrder(Long id){
         Order detailOrder = orderService.findDetailOrder(id);
         return Result.success(detailOrder);
     }

@@ -10,5 +10,5 @@ public interface InventoryNumService {
     void addNumInventory(Product product);
 
     /** 商家给自有商品补货（校验归属并写库存流水） */
-    void restock(Integer userId, Integer productId, Integer qty);
+    void restock(Long userId, Long productId, Integer qty);
 }

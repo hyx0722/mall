@@ -15,7 +15,7 @@ import java.util.List;
 public class CreateOrderRequest {
 
     /** 收货地址 id（可选，快照在支付/发货阶段再补） */
-    private Integer addressId;
+    private Long addressId;
 
     private String remark;
 
@@ -26,7 +26,7 @@ public class CreateOrderRequest {
     @Data
     public static class Item {
         @NotNull(message = "商品id不能为空")
-        private Integer productId;
+        private Long productId;
 
         @NotNull(message = "购买数量不能为空")
         @Min(value = 1, message = "购买数量至少为1")

@@ -17,13 +17,13 @@ import java.time.LocalDateTime;
 public class OrderItem {
     @TableField("id")
     @NotNull(message = "明细ID不能为空")
-    private Integer id;
+    private Long id;
     @TableField("order_id")
     @NotNull(message = "订单ID不能为空")
-    private Integer orderId;
+    private Long orderId;
     @TableField("product_id")
     @NotNull(message = "商品ID不能为空")
-    private Integer productId;
+    private Long productId;
     @TableField("product_name")
     @NotNull(message = "商品名称（快照）不能为空")
     private String productName;

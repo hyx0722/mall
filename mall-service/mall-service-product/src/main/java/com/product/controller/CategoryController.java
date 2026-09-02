@@ -26,7 +26,7 @@ public class CategoryController {
 
     // 浏览：某父分类下的启用子分类（parentId=0 顶级）
     @GetMapping("/category/list")
-    public Result<List<Category>> listByParent(@RequestParam(required = false, defaultValue = "0") Integer parentId) {
+    public Result<List<Category>> listByParent(@RequestParam(required = false, defaultValue = "0") Long parentId) {
         return Result.success(categoryService.listEnabledByParent(parentId));
     }
 

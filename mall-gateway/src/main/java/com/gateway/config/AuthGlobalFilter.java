@@ -50,7 +50,7 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             if (idObj == null) {
                 throw new RuntimeException("token 缺少用户 id");
             }
-            Integer id = ((Number) idObj).intValue();
+            long id = ((Number) idObj).longValue();
             String username = (String) claims.get("username");
 
             // 校验登录态仍有效（单设备登录 / 主动失效）

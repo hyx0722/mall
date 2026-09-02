@@ -39,9 +39,9 @@ public class InventoryNumController {
 
     //商家给自有商品补货（归属以登录态 user_id 为准）
     @PostMapping("/restock")
-    public Result restock(@RequestParam Integer productId, @RequestParam Integer qty) {
+    public Result restock(@RequestParam Long productId, @RequestParam Integer qty) {
         Map<String, Object> map = ThreadLocalUtil.get();
-        Integer userId = (map == null) ? null : (Integer) map.get("id");
+        Long userId = (map == null) ? null : (Long) map.get("id");
         inventoryNumService.restock(userId, productId, qty);
         return Result.success();
     }

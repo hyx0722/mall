@@ -1,5 +1,6 @@
 package com.inventory;
 
+import com.mall.common.web.CommonWebConfig;
 import com.model.web.GlobalExceptionHandler;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -12,7 +13,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EnableTransactionManagement
 @EnableFeignClients
 @EnableDiscoveryClient
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, CommonWebConfig.class})
 public class MallServiceInventoryApplication {
     public static void main(String[] args) {
         SpringApplication.run(MallServiceInventoryApplication.class,args);

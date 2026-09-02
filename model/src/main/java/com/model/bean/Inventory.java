@@ -17,13 +17,13 @@ import java.time.LocalDateTime;
 public class Inventory {
     @TableField("id")
     @NotNull(message = "库存记录ID不能为空")
-    private Integer id;
+    private Long id;
     @TableField("product_id")
     @NotNull(message = "商品ID不能为空")
-    private Integer productId;
+    private Long productId;
     @TableField("user_id")
     @NotNull(message = "用户ID不能为空")
-    private Integer userId;
+    private Long userId;
     @TableField("total_stock")
     private Integer totalStock;
     @TableField("locked_stock")

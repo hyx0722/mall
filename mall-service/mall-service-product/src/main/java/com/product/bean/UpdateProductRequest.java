@@ -16,12 +16,12 @@ import java.math.BigDecimal;
 public class UpdateProductRequest {
 
     @NotNull(message = "商品 id 不能为空")
-    private Integer id;
+    private Long id;
 
     @Size(max = 200, message = "商品名称最长 200 字")
     private String name;
 
-    private Integer categoryId;
+    private Long categoryId;
 
     @Size(max = 200, message = "副标题最长 200 字")
     private String subtitle;

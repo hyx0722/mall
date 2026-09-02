@@ -3,6 +3,7 @@ package com.product.service.impl;
 
 import com.model.bean.PageBean;
 import com.model.bean.Product;
+import com.model.exception.BusinessException;
 import com.model.util.ThreadLocalUtil;
 import com.product.mapper.ProductMapper;
 import com.product.service.ProductService;
@@ -35,17 +36,20 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public List<Product> findProductByUserId(Integer start, Integer size) {
         Map<String,Object> map = ThreadLocalUtil.get();
-        Integer userId = (Integer) map.get("id");
+        if (map == null || map.get("id") == null) {
+            throw new BusinessException("请先登录");
+        }
+        Long userId = (Long) map.get("id");
         return  productMapper.findProductByUserId(toOffset(start, size), normSize(size), userId);
     }
 
     @Override
-    public Product findProductById(Integer id) {
+    public Product findProductById(Long id) {
         return productMapper.findProductById(id);
     }
 
     @Override
-    public PageBean<Product> findProductPage(String keyword, Integer categoryId, String sort, Integer page, Integer size) {
+    public PageBean<Product> findProductPage(String keyword, Long categoryId, String sort, Integer page, Integer size) {
         int p = (page == null || page < 1) ? 1 : page;
         int s = normSize(size);
         String order = (sort == null || sort.isBlank()) ? "newest" : sort;
