@@ -4,7 +4,9 @@ import com.model.bean.Order;
 import com.model.bean.Product;
 import com.model.bean.Result;
 import com.model.event.InventoryResultEvent;
+import com.model.event.OrderCanceledEvent;
 import com.model.event.OrderCreatedEvent;
+import com.model.event.PaySuccessEvent;
 import com.model.exception.BusinessException;
 import com.model.util.ThreadLocalUtil;
 import com.order.bean.CreateOrderRequest;
@@ -65,7 +67,8 @@ public class OrderServiceImpl implements OrderService {
      * 1) 同步 Feign 拉取商品价格/名称快照，计算总金额；
      * 2) 本地事务写 orders(order_status=0 待付款) + order_item；
      * 3) 事务提交后向 mall.order.exchange 发布 order.created。
-     * 库存扣减由 inventory 消费 order.created 异步完成，成功后回执 deducted -> 订单待发货，失败回执 deduct_failed -> 取消。
+     * 库存扣减由 inventory 消费 order.created 异步完成：deducted 回执仅确认库存锁定、订单保持待付款；
+     * 支付成功(pay.success)才 0->1 待发货；deduct_failed 回执 0->4 取消。
      */
     @Override
     @Transactional
@@ -144,14 +147,64 @@ public class OrderServiceImpl implements OrderService {
         return order;
     }
 
-    /** 处理库存扣减成功回执 */
+    /**
+     * 库存扣减成功回执：库存已锁定，但订单仍处于待付款（支付成功后才待发货）。
+     * 仅记日志，不改订单状态。
+     */
     public void handleDeducted(InventoryResultEvent event) {
-        orderMapper.markDeducted(event.getOrderNo());
+        log.info("[order] 订单 {} 库存已锁定，等待支付，订单保持待付款", event.getOrderNo());
     }
 
-    /** 处理库存扣减失败回执 */
+    /** 处理库存扣减失败回执：待付款 -> 已取消 */
     public void handleDeductFailed(InventoryResultEvent event) {
         orderMapper.markDeductFailed(event.getOrderNo());
+    }
+
+    /** 处理支付成功回执：待付款 -> 待发货（markPaid 带 order_status=0 条件防重） */
+    public void handlePaid(PaySuccessEvent event) {
+        orderMapper.markPaid(event.getOrderId());
+    }
+
+    /**
+     * 支付超时自动取消：扫描超时未支付的待付款订单，条件更新 0->4；
+     * 仅对真正被取消（受影响 1 行）的订单发 order.canceled，供 inventory 释放锁定、payment 关闭支付单。
+     */
+    @Override
+    public void cancelExpiredOrders(long minutes) {
+        List<Order> overdue = orderMapper.selectOverdueOrders(minutes);
+        if (overdue.isEmpty()) {
+            return;
+        }
+        for (Order order : overdue) {
+            try {
+                int affected = orderMapper.markCancelled(order.getOrderNo());
+                if (affected == 0) {
+                    continue; // 已被并发（支付/其它取消）翻转，跳过
+                }
+                publishCanceled(order);
+                log.info("[order] 订单 {} 支付超时已取消", order.getOrderNo());
+            } catch (Exception e) {
+                log.error("[order] 取消订单 {} 失败", order.getOrderNo(), e);
+            }
+        }
+    }
+
+    private void publishCanceled(Order order) {
+        List<OrderItem> items = orderItemMapper.selectByOrderId(order.getId());
+        OrderCanceledEvent event = new OrderCanceledEvent();
+        event.setOrderNo(order.getOrderNo());
+        event.setOrderId(order.getId());
+        event.setUserId(order.getUserId());
+        List<OrderCanceledEvent.Item> evtItems = new ArrayList<>();
+        for (OrderItem item : items) {
+            OrderCanceledEvent.Item it = new OrderCanceledEvent.Item();
+            it.setProductId(item.getProductId());
+            it.setQuantity(item.getQuantity());
+            evtItems.add(it);
+        }
+        event.setItems(evtItems);
+        rabbitTemplate.convertAndSend(OrderRabbitConfig.ORDER_EXCHANGE,
+                OrderRabbitConfig.RK_ORDER_CANCELED, event);
     }
 
     private String genOrderNo(Long userId) {

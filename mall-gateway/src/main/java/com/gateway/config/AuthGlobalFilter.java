@@ -29,7 +29,9 @@ import java.util.Map;
 public class AuthGlobalFilter implements GlobalFilter, Ordered {
 
     private static final List<String> WHITE_LIST =
-            List.of("/user/login", "/user/register");
+            List.of("/user/login", "/user/register",
+                    // 第三方支付异步回调：无 JWT 登录态（验签在支付服务内部完成）
+                    "/pay/alipay/notify", "/pay/wx/notify");
 
     @Autowired
     private JwtUtil jwtUtil;

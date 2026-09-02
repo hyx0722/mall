@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 订单服务消费库存扣减结果回执：
- *  - inventory.deducted      -> 订单 待付款 -> 待发货
+ *  - inventory.deducted      -> 库存已锁定，订单保持待付款（待支付成功才待发货）
  *  - inventory.deduct_failed -> 订单 待付款 -> 已取消
  */
 @Component

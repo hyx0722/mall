@@ -13,9 +13,35 @@ spring:
         namespace: dev
         username: nacos
         password: nacos
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
 
 server:
   port: 7000
+
+# 支付渠道占位配置（真实微信/支付宝商户参数后替换）。
+# 各渠道 enabled=false 时不加载/调用 SDK 运行时代码（仅 classpath 存在供编译）。
+payment:
+  mock:
+    enabled: false          # 测试钩子开关：演示时置 true，POST /pay/mock/success 模拟支付成功
+  alipay:
+    enabled: false          # 支付宝渠道
+    gateway: https://openapi.alipay.com/gateway.do
+    app-id: 2016081100000000              # 占位：真实应用 APPID
+    private-key: YOUR_APP_PRIVATE_KEY     # 占位：应用私钥（PKCS8，去除头尾）
+    alipay-public-key: YOUR_ALIPAY_PUBLIC_KEY  # 占位：支付宝公钥（验签用）
+    notify-url: http://localhost:9999/pay/alipay/notify
+  wxpay:
+    enabled: false          # 微信支付渠道
+    mch-id: "1900000000"                   # 占位：微信支付商户号
+    app-id: wx8888888888888888             # 占位：公众号/小程序 AppID
+    api-v3-key: YOUR_APIV3_KEY             # 占位：APIv3 密钥
+    private-key-path: classpath:apiclient_key.pem   # 占位：商户 API 私钥（apiclient_key.pem）
+    merchant-serial-no: YOUR_SERIAL_NO     # 占位：商户证书序列号
+    notify-url: http://localhost:9999/pay/wx/notify
 ---
 spring:
   config:
@@ -42,4 +68,3 @@ spring:
     import:
       - nacos:common.yaml?group=mall-service-payment
       - nacos:datasource.yaml?group=mall-service-payment
-

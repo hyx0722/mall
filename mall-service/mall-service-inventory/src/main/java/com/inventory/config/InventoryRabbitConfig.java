@@ -14,7 +14,7 @@ import org.springframework.context.annotation.Configuration;
 @EnableRabbit
 
 /**
- * 库存侧 RabbitMQ 声明：绑定 order.created 队列，
+ * 库存侧 RabbitMQ 声明：绑定 order.created 与 order.canceled 队列，
  * 并向 mall.order.exchange 回执扣减结果（deducted / deduct_failed）。
  * 拓扑常量统一定义于 {@link RabbitTopology}，避免 order/inventory 两端漂移。
  */
@@ -23,10 +23,12 @@ public class InventoryRabbitConfig {
 
     public static final String ORDER_EXCHANGE = RabbitTopology.ORDER_EXCHANGE;
     public static final String RK_ORDER_CREATED = RabbitTopology.RK_ORDER_CREATED;
+    public static final String RK_ORDER_CANCELED = RabbitTopology.RK_ORDER_CANCELED;
     public static final String RK_DEDUCTED = RabbitTopology.RK_DEDUCTED;
     public static final String RK_DEDUCT_FAILED = RabbitTopology.RK_DEDUCT_FAILED;
 
     public static final String Q_ORDER_CREATED = RabbitTopology.Q_ORDER_CREATED;
+    public static final String Q_ORDER_CANCELED = RabbitTopology.Q_INVENTORY_ORDER_CANCELED;
 
     @Bean
     public TopicExchange inventoryOrderExchange() {
@@ -41,6 +43,17 @@ public class InventoryRabbitConfig {
     @Bean
     public Binding bindOrderCreated() {
         return BindingBuilder.bind(orderCreatedQueue()).to(inventoryOrderExchange()).with(RK_ORDER_CREATED);
+    }
+
+    // 订单取消：释放该订单锁定的库存
+    @Bean
+    public Queue orderCanceledQueue() {
+        return new Queue(Q_ORDER_CANCELED, true);
+    }
+
+    @Bean
+    public Binding bindOrderCanceled() {
+        return BindingBuilder.bind(orderCanceledQueue()).to(inventoryOrderExchange()).with(RK_ORDER_CANCELED);
     }
 
     @Bean

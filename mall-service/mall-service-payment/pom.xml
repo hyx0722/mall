@@ -8,5 +8,34 @@
     </parent>
     <artifactId>mall-service-payment</artifactId>
 
+    <dependencies>
+        <!-- RabbitMQ：支付成功 -> pay.success 事件，order 侧消费翻转订单状态 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
+        <!-- 支付宝官方 SDK（占位配置，渠道启用后走 page 表单下单/验签）。
+             排除 commons-logging 1.1.1：与 Spring 的 spring-jcl 同包双类，运行时冲突。 -->
+        <dependency>
+            <groupId>com.alipay.sdk</groupId>
+            <artifactId>alipay-sdk-java</artifactId>
+            <version>4.40.630.ALL</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- 微信支付 APIv3 官方 SDK（占位配置，渠道启用后走 Native 下单/验签）。
+             core 传递的 slf4j-api 1.7.36 由父 BOM(dependencyManagement) 压到 2.x，无冲突。 -->
+        <dependency>
+            <groupId>com.github.wechatpay-apiv3</groupId>
+            <artifactId>wechatpay-java</artifactId>
+            <version>0.2.17</version>
+        </dependency>
+    </dependencies>
 
 </project>

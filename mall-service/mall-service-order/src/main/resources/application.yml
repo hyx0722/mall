@@ -21,6 +21,10 @@ spring:
 
 server:
   port: 6000
+
+# 支付超时自动取消阈值（分钟）
+order:
+  pay-timeout-minutes: 30
 ---
 spring:
   config:

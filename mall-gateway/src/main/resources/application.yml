@@ -41,6 +41,13 @@ spring:
             - Path=/inventory/**
           filters:
             - StripPrefix=1
+        # 支付服务
+        - id: mall-payment
+          uri: lb://mall-service-payment
+          predicates:
+            - Path=/pay/**
+          filters:
+            - StripPrefix=1
   data:
     redis:
       host: 127.0.0.1
