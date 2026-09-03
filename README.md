@@ -118,6 +118,30 @@ mall
 | Queue | `q.pay.order.canceled` | 支付侧消费订单取消事件（关闭未付支付单） |
 | Queue | `q.order.deducted` / `q.order.deduct.failed` | 订单侧消费扣减回执 |
 | Queue | `q.order.pay.success` | 订单侧消费支付成功回执 |
+| TopicExchange | `mall.order.delay.exchange` | 支付超时延迟（order 侧），per-message TTL 到点死信回主交换机 |
+| 路由键 | `delay.order.timeout` / `order.timeout` | 延迟标记发往持有队列的路由键 / TTL 到点死信回主交换机的路由键 |
+| Queue | `q.delay.order.timeout` | 无消费者持有队列（TTL 到期死信到主交换机触发超时取消） |
+| Queue | `q.order.timeout` | order 消费延迟超时标记（走统一取消漏斗） |
+| TopicExchange | `mall.order.dlx` | 统一死信交换机（order/inventory/payment 各声明同名） |
+| Queue | `q.order.dlq` / `q.inventory.dlq` / `q.pay.dlq` | 各服务消费失败重试耗尽后的死信落点（绑定 DLX/`#`） |
+
+#### 3.1 事件可靠性设计（事务 outbox / 延迟消息 / DLQ）
+
+- **事务 outbox**：order 的 `order.created / order.canceled`、payment 的 `pay.success` 不再用
+  `TransactionSynchronization.afterCommit` 或「事务外立即发」，而是与业务状态变更**同一本地事务**写入
+  `outbox` 表（order/payment 库各一张），由各自 `@Scheduled(3s)` 的 relay 领取（`for update skip locked`）
+  并投递，成功后置 `status=1`。根治「订单已取消/已支付但事件没发出去」的非原子窗口。
+- **支付超时延迟消息**：下单事务内同时入箱一条「超时标记」，带 `delay_ms`（= 支付超时阈值）；
+  relay 发送时设 per-message `expiration` 发到延迟交换机 → 无消费者持有队列 → TTL 到点死信回主交换机
+  `order.timeout` → order 消费并走 `OrderCancelService.cancelByOrderNo` 统一取消漏斗（条件 0→4 +
+  同事务 outbox 发 `order.canceled`）。原 60s 定时扫表降频为 5 分钟**对账兜底**（防延迟消息丢失）。
+- **有界重试 + DLQ**：order/inventory/payment 各自声明 `rabbitListenerContainerFactory`（`maxRetries(2)` +
+  `RejectAndDontRequeueRecoverer`），瞬时异常重试 3 次后 `basicReject(requeue=false)` 落入本服务 DLQ，
+  不再无限 requeue。
+- **库存扣减消费**：移除「先 Redis SETNX 打标」；改为按商品 id 升序取 Redisson 锁后，在**单个 DB 事务**
+  内完成「条件扣库存 + 写 change_type=3 流水」，任一商品不足整单回滚；幂等以 `inventory_log`
+  （`order_id, product_id, change_type` 唯一键）为准——重投会跳过已锁商品并重发回执，
+  消除「处理中崩溃 → 重投被挡 → 订单悬挂」窗口。取消消费同理。
 
 ### 4. 商家上架商品 → 初始化库存（user → product → inventory 三段）
 
@@ -232,6 +256,14 @@ mall
 
 前置依赖：JDK 21、Maven、MySQL、Redis、RabbitMQ、Nacos。
 
+> **自「事件可靠性加固」起的存量迁移**：
+> - order/payment 库需手动补 `outbox` 建表 DDL（见 `order.sql` / `payment.sql` 尾部）；inventory 库需执行
+>   `ALTER TABLE inventory_log ADD UNIQUE KEY uk_order_product_type (order_id, product_id, change_type)`
+>   （若历史数据有同订单同商品同类型重复流水，先清理再执行）。
+> - RabbitMQ 侧新增延迟交换机/持有队列/死信交换机/各 DLQ，且原入站队列现在带
+>   `x-dead-letter-exchange=mall.order.dlx` 参数——**已存在的同名旧队列与旧参数不符会导致 406
+>   PRECONDITION_FAILED**，本地演示建议清空 Rabbit 数据或换一个 vhost 后重启各服务（队列由各服务 RabbitConfig 自动声明）。
+
 1. **初始化数据库**：新建各业务库，执行对应模块 `src/main/resources` 下的建表脚本（如 `User.sql`、`Product.sql`、`order.sql`、`inventory.sql`、`payment.sql`）。
 2. **启动 Nacos** 并准备配置：各服务 `application.yml` 通过 `spring.config.import` 拉取 `nacos:common.yaml` / `nacos:datasource.yaml`（namespace `dev`、group 为服务名）。仓库内 `application-datasource.yml` 仅作本地参考兜底，实际数据源以 Nacos 配置为准。
 3. **编译并安装公共模块**（各服务依赖 `model` 与 `mall-common`，改动后需先安装）：
@@ -248,11 +280,11 @@ mall
 
 ## 关键设计与已知边界
 
-- **超卖防护**：扣库存不依赖分布式锁的互斥，而是「条件 UPDATE（`available_stock>=qty`）」在数据库层保证原子，Redisson 锁用于串行化同一商品的竞争、降低无效 UPDATE。
-- **MQ 幂等**：当前以 Redis `SETNX` 对订单号打标实现 at-least-once 下的去重（TTL 24h）。简单直观，但存在「处理中崩溃 → 重投被跳过而订单悬挂」的窗口；生产建议补充：手动 ack + 死信队列、扣库存与流水同事务、或 outbox/对账补偿。
+- **超卖防护**：扣库存不依赖分布式锁的互斥，而是「条件 UPDATE（`available_stock>=qty`）」在数据库层保证原子，Redisson 锁用于串行化同一商品的竞争、降低无效 UPDATE（锁在 DB 事务之外按商品 id 升序先取好）。
+- **事件可靠性（outbox / 延迟消息 / DLQ / DB 幂等）**：order/payment 的对外事件均走**事务 outbox**（与业务同库同事务入 `outbox` 表，relay 定时投递）；支付超时改用**延迟消息**（per-message TTL + 死信回主交换机）并保留低频对账兜底；order/inventory/payment 消费端统一**有界重试(3) + DLQ**，库存扣减改为「单事务扣库存+流水」并以 `inventory_log`（order_id, product_id, change_type 唯一键）做幂等（移除先 SETNX）。详见 §3.1。
 - **主键类型**：表主键/外键为 `BIGINT`，Java 侧实体与身份信息统一使用 `Long`。
 - **错误提示**：业务失败抛 `BusinessException`，由 `model.GlobalExceptionHandler` 统一转为 `Result.error(友好文案)`，避免向前端泄露 SQL 等内部信息。
 - **支付为真实 SDK 结构 + 占位配置**：`mall-service-payment` 已引入支付宝（`alipay-sdk-java`）与微信（`wechatpay-java` APIv3）官方 SDK 结构，但商户号/AppID/证书密钥当前为**占位值**（见 payment `application.yml` 的 `payment.*` 段），故渠道回调收不到；本地演示请置 `payment.mock.enabled=true` 后调 `POST /pay/mock/success` 模拟支付成功（走与真实回调相同的幂等落库与 `pay.success` 事件）。
-- **支付超时自动取消**：order 服务定时任务（默认每 60s）扫描超过 `order.pay-timeout-minutes`（默认 30 分钟）未支付的待付款订单并取消（0 → 4），发布 `order.canceled`：inventory 侧释放该订单锁定库存（写 `inventory_log` change_type=4）、payment 侧关闭该订单未付支付单。取消与支付同为 `order_status=0` 条件更新，谁先提交谁生效，不会误发货。
+- **支付超时自动取消**：主路径为下单时入箱的超时延迟消息（`order.pay-timeout-minutes` 默认 30 分钟，per-message TTL 到点死信触发），order 消费后经统一取消漏斗条件 0→4 并同事务 outbox 发 `order.canceled`（inventory 释放锁定、payment 关闭未付支付单）；另保留每 5 分钟的对账扫表兜底，防延迟消息丢失/宕机窗口。取消与支付同为 `order_status=0` 条件更新，谁先提交谁生效。
 - **发货/收货并发**：`/seller/ship` 与 `/receive` 事务内第一条语句对订单行 `select ... for update`，串行化同一订单的并发操作。下单时锁库存、支付、取消等已处理，故发货按「卖家是否已全部发货」聚合整单推进；混单（多卖家）必须各自都发货后整单才 `1 → 2待收货`，买家确认整单收货后 `→ 3已完成`。
-- **已知未完成**：退款/售后链路（`refund` 表 / `order_status` 5退款中、6已退款 / `inventory_log` change_type=6 / `payment_status=2` 等均已预留但无代码路径）、真正可用的分布式事务（Seata 依赖已移除，`@GlobalTransactional` 仅演示用后已清理）尚未实现。另取消落库与 `order.canceled` 事件发布非原子（发布失败时订单已取消但库存未释放，仅靠下一次扫描补 canceltime 不会重发事件，需 outbox/补偿），演示可接受。
+- **已知未完成**：退款/售后链路（`refund` 表 / `order_status` 5退款中、6已退款 / `inventory_log` change_type=6 / `payment_status=2` 等均已预留但无代码路径）、真正可用的分布式事务（Seata 依赖已移除，`@GlobalTransactional` 仅演示用后已清理）尚未实现。发布侧发送未开 publisher-confirms（无法路由的消息静默丢失仍靠对账兜底）。

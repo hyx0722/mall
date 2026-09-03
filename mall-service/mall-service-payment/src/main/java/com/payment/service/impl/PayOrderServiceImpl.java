@@ -16,14 +16,12 @@ import com.payment.entity.PaymentRecord;
 import com.payment.feign.OrderFeignClient;
 import com.payment.mapper.PayOrderMapper;
 import com.payment.mapper.PaymentRecordMapper;
+import com.payment.service.OutboxService;
 import com.payment.service.PayOrderService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -41,7 +39,7 @@ public class PayOrderServiceImpl implements PayOrderService {
     @Autowired
     OrderFeignClient orderFeignClient;
     @Autowired
-    RabbitTemplate rabbitTemplate;
+    OutboxService outboxService;
     @Autowired
     List<PayChannel> channels;
     @Autowired
@@ -124,15 +122,9 @@ public class PayOrderServiceImpl implements PayOrderService {
         event.setUserId(payOrder.getUserId());
         event.setTransactionId(transactionId);
         event.setPaymentMethod(payOrder.getPaymentMethod());
-        // 事务提交后再发事件，保证下游(订单翻转)只看到已落库的支付成功
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                rabbitTemplate.convertAndSend(PaymentRabbitConfig.ORDER_EXCHANGE,
-                        PaymentRabbitConfig.RK_PAY_SUCCESS, event);
-                log.info("[pay] 支付成功已落库，发布 pay.success payNo={} orderId={}", payNo, event.getOrderId());
-            }
-        });
+        // 与支付落库同事务写 outbox，由 relay 提交后可靠投递（下游订单翻转只见已落库的支付成功）
+        outboxService.enqueue(PaymentRabbitConfig.ORDER_EXCHANGE, PaymentRabbitConfig.RK_PAY_SUCCESS, null, event);
+        log.info("[pay] 支付成功已落库并登记 pay.success payNo={} orderId={}", payNo, event.getOrderId());
         return true;
     }
 

@@ -11,6 +11,12 @@ package com.mall.common.rabbit;
  *   order 发布 order.canceled -> inventory 释放锁定 / payment 关闭未付支付单（支付超时自动取消）
  *   inventory 回执 inventory.deducted / inventory.deduct_failed -> order 消费
  *   payment 发布 pay.success -> order 消费（支付成功：待付款 -> 待发货）
+ *
+ * 支付超时走延迟消息：mall.order.delay.exchange 收到带 per-message TTL 的超时标记，
+ * 进入无消费者持有队列 q.delay.order.timeout，TTL 到点死信回主交换机 order.timeout -> q.order.timeout。
+ *
+ * 消费失败统一死信：各入站队列带 x-dead-letter-exchange=mall.order.dlx，经有界重试耗尽后
+ * reject（requeue=false）落入各服务 DLQ。
  */
 public final class RabbitTopology {
 
@@ -24,6 +30,28 @@ public final class RabbitTopology {
     public static final String RK_DEDUCTED = "inventory.deducted";
     public static final String RK_DEDUCT_FAILED = "inventory.deduct_failed";
     public static final String RK_PAY_SUCCESS = "pay.success";
+
+    // ---------- 支付超时延迟消息（DLX + per-message TTL） ----------
+
+    /** 延迟交换机：超时标记带 per-message TTL 发到这里，进入无消费者持有队列等 TTL */
+    public static final String DELAY_EXCHANGE = "mall.order.delay.exchange";
+    /** 持有队列入站路由键 */
+    public static final String RK_DELAY_ORDER_TIMEOUT = "delay.order.timeout";
+    /** 持有队列（无消费者；TTL 到点死信到主交换机） */
+    public static final String Q_DELAY_ORDER_TIMEOUT = "q.delay.order.timeout";
+    /** TTL 到点死信到主交换机时携带的路由键（需持队列 x-dead-letter-routing-key 一致） */
+    public static final String RK_ORDER_TIMEOUT = "order.timeout";
+    /** order 消费延迟超时标记的队列 */
+    public static final String Q_ORDER_TIMEOUT = "q.order.timeout";
+
+    // ---------- 死信（DLX / DLQ，各入站队列消费失败/重试耗尽后落死信） ----------
+
+    /** 统一死信交换机（topic, durable；order/inventory/payment 各自声明同名） */
+    public static final String DLX_EXCHANGE = "mall.order.dlx";
+    /** 死信队列：各服务各自声明并绑定到 DLX / # */
+    public static final String Q_ORDER_DLQ = "q.order.dlq";
+    public static final String Q_INVENTORY_DLQ = "q.inventory.dlq";
+    public static final String Q_PAY_DLQ = "q.pay.dlq";
 
     /** 库存侧：消费下单事件 */
     public static final String Q_ORDER_CREATED = "q.inventory.order.created";

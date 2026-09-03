@@ -86,6 +86,10 @@ public interface OrderMapper extends BaseMapper<Order> {
             "where order_status=0 and created_time < DATE_SUB(now(), INTERVAL #{minutes} MINUTE) limit 200")
     List<Order> selectOverdueOrders(@Param("minutes") long minutes);
 
+    // 按业务订单号查完整订单（统一取消漏斗/超时消费用）
+    @Select("select * from orders where order_no=#{orderNo}")
+    Order selectByOrderNo(@Param("orderNo") String orderNo);
+
     @Update("update orders set order_status=4, cancel_time=now() where order_no=#{orderNo} and order_status=0")
     int markCancelled(@Param("orderNo") String orderNo);
 

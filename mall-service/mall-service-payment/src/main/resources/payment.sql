@@ -68,3 +68,19 @@ CREATE TABLE `undo_log` (
                             PRIMARY KEY (`id`),
                             UNIQUE KEY `ux_undo_log` (`xid`,`branch_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COMMENT='AT模式回滚日志表';
+
+-- 4. 事务性发件箱（outbox）：pay.success 与支付落库同事务写入，relay 定时投递到 order。
+--    已按本模块建库的存量环境：单独执行下面 CREATE TABLE 即可。
+CREATE TABLE `outbox` (
+                           `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '发件箱ID',
+                           `exchange`     VARCHAR(100)    NOT NULL COMMENT '目标交换机',
+                           `routing_key`  VARCHAR(100)    NOT NULL COMMENT '目标路由键',
+                           `payload`      TEXT            NOT NULL COMMENT '事件 JSON 原文',
+                           `status`       TINYINT         NOT NULL DEFAULT 0 COMMENT '状态：0-待发送 1-已发送',
+                           `retry_count`  INT             NOT NULL DEFAULT 0 COMMENT '投递失败重试次数',
+                           `delay_ms`     BIGINT          DEFAULT NULL COMMENT '非空则走延迟交换机并附加 per-message TTL(毫秒)',
+                           `created_time` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                           `sent_time`    DATETIME        DEFAULT NULL COMMENT '成功投递时间',
+                           PRIMARY KEY (`id`),
+                           KEY `idx_status_id` (`status`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='事务性发件箱';

@@ -4,8 +4,8 @@ import com.model.bean.Order;
 import com.model.bean.Product;
 import com.model.bean.Result;
 import com.model.event.InventoryResultEvent;
-import com.model.event.OrderCanceledEvent;
 import com.model.event.OrderCreatedEvent;
+import com.model.event.OrderTimeoutEvent;
 import com.model.event.PaySuccessEvent;
 import com.model.exception.BusinessException;
 import com.model.util.ThreadLocalUtil;
@@ -18,14 +18,14 @@ import com.order.fein.ProductFeignClient;
 import com.order.mapper.OrderItemMapper;
 import com.order.mapper.OrderMapper;
 import com.order.mapper.ShippingMapper;
+import com.order.service.OrderCancelService;
 import com.order.service.OrderService;
+import com.order.service.OutboxService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -45,7 +45,13 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     ProductFeignClient productFeignClient;
     @Autowired
-    RabbitTemplate rabbitTemplate;
+    OutboxService outboxService;
+    @Autowired
+    OrderCancelService orderCancelService;
+
+    /** 支付超时阈值（分钟），下单时据此为延迟取消标记设置 TTL */
+    @Value("${order.pay-timeout-minutes:30}")
+    private long payTimeoutMinutes;
 
     @Override
     public List<Order> findAllOrder() {
@@ -86,7 +92,7 @@ public class OrderServiceImpl implements OrderService {
      * 下单：
      * 1) 同步 Feign 拉取商品价格/名称快照，计算总金额；
      * 2) 本地事务写 orders(order_status=0 待付款) + order_item；
-     * 3) 事务提交后向 mall.order.exchange 发布 order.created。
+     * 3) 同事务把 order.created 与「支付超时延迟标记」写入 outbox，relay 提交后可靠投递。
      * 库存扣减由 inventory 消费 order.created 异步完成：deducted 回执仅确认库存锁定、订单保持待付款；
      * 支付成功(pay.success)才 0->1 待发货；deduct_failed 回执 0->4 取消。
      */
@@ -144,27 +150,32 @@ public class OrderServiceImpl implements OrderService {
             orderItemMapper.insertOrderItem(item);
         }
 
-        // 事务提交后再发事件，避免下游在订单未落库时就消费
-        final Long orderId = order.getId();
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                OrderCreatedEvent event = new OrderCreatedEvent();
-                event.setOrderNo(orderNo);
-                event.setOrderId(orderId);
-                event.setUserId(userId);
-                List<OrderCreatedEvent.Item> evtItems = new ArrayList<>();
-                for (CreateOrderRequest.Item reqItem : request.getItems()) {
-                    OrderCreatedEvent.Item it = new OrderCreatedEvent.Item();
-                    it.setProductId(reqItem.getProductId());
-                    it.setQuantity(reqItem.getQuantity());
-                    evtItems.add(it);
-                }
-                event.setItems(evtItems);
-                rabbitTemplate.convertAndSend(OrderRabbitConfig.ORDER_EXCHANGE, OrderRabbitConfig.RK_ORDER_CREATED, event);
-            }
-        });
+        // 同事务入 outbox：业务落库与事件发布原子，relay 提交后再投递（下游不会在订单未落库时消费）
+        Long orderId = order.getId();
+        enqueueOrderCreated(orderNo, orderId, userId, request);
+
+        // 超时延迟标记：TTL=支付超时阈值，届时死信回主交换机触发取消（订单已支付/已取消则幂等跳过）
+        OrderTimeoutEvent timeout = new OrderTimeoutEvent();
+        timeout.setOrderNo(orderNo);
+        outboxService.enqueue(OrderRabbitConfig.DELAY_EXCHANGE, OrderRabbitConfig.RK_DELAY_ORDER_TIMEOUT,
+                payTimeoutMinutes * 60_000L, timeout);
         return order;
+    }
+
+    private void enqueueOrderCreated(String orderNo, Long orderId, Long userId, CreateOrderRequest request) {
+        OrderCreatedEvent event = new OrderCreatedEvent();
+        event.setOrderNo(orderNo);
+        event.setOrderId(orderId);
+        event.setUserId(userId);
+        List<OrderCreatedEvent.Item> evtItems = new ArrayList<>();
+        for (CreateOrderRequest.Item reqItem : request.getItems()) {
+            OrderCreatedEvent.Item it = new OrderCreatedEvent.Item();
+            it.setProductId(reqItem.getProductId());
+            it.setQuantity(reqItem.getQuantity());
+            evtItems.add(it);
+        }
+        event.setItems(evtItems);
+        outboxService.enqueue(OrderRabbitConfig.ORDER_EXCHANGE, OrderRabbitConfig.RK_ORDER_CREATED, null, event);
     }
 
     /**
@@ -175,9 +186,9 @@ public class OrderServiceImpl implements OrderService {
         log.info("[order] 订单 {} 库存已锁定，等待支付，订单保持待付款", event.getOrderNo());
     }
 
-    /** 处理库存扣减失败回执：待付款 -> 已取消 */
+    /** 处理库存扣减失败回执：经统一取消漏斗 0->4 并登记 order.canceled（供 payment 关闭未付支付单） */
     public void handleDeductFailed(InventoryResultEvent event) {
-        orderMapper.markDeductFailed(event.getOrderNo());
+        orderCancelService.cancelByOrderNo(event.getOrderNo());
     }
 
     /** 处理支付成功回执：待付款 -> 待发货（markPaid 带 order_status=0 条件防重），并冻结收货人快照 */
@@ -188,8 +199,8 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * 支付超时自动取消：扫描超时未支付的待付款订单，条件更新 0->4；
-     * 仅对真正被取消（受影响 1 行）的订单发 order.canceled，供 inventory 释放锁定、payment 关闭支付单。
+     * 支付超时自动取消的对账兜底（主路径已改为延迟消息）：低频扫描超时未支付的待付款订单，
+     * 逐单走统一取消漏斗（条件更新 0->4 + 同事务 outbox 发 order.canceled）。
      */
     @Override
     public void cancelExpiredOrders(long minutes) {
@@ -199,12 +210,8 @@ public class OrderServiceImpl implements OrderService {
         }
         for (Order order : overdue) {
             try {
-                int affected = orderMapper.markCancelled(order.getOrderNo());
-                if (affected == 0) {
-                    continue; // 已被并发（支付/其它取消）翻转，跳过
-                }
-                publishCanceled(order);
-                log.info("[order] 订单 {} 支付超时已取消", order.getOrderNo());
+                orderCancelService.cancelByOrderNo(order.getOrderNo());
+                log.info("[order] 对账扫描取消超时订单 {}", order.getOrderNo());
             } catch (Exception e) {
                 log.error("[order] 取消订单 {} 失败", order.getOrderNo(), e);
             }
@@ -225,8 +232,8 @@ public class OrderServiceImpl implements OrderService {
         if (affected == 0) {
             throw new BusinessException("订单不存在或当前状态不可取消");
         }
-        Order order = orderMapper.findOrderById(orderId);
-        publishCanceled(order);
+        // 同事务把 order.canceled 写入 outbox（释放库存/关支付单由下游消费）
+        orderCancelService.enqueueCanceledForOrder(orderId);
     }
 
     @Override
@@ -272,8 +279,8 @@ public class OrderServiceImpl implements OrderService {
         if (affected == 0) {
             throw new BusinessException("订单不存在或当前状态不可取消");
         }
-        Order order = orderMapper.findOrderById(orderId);
-        publishCanceled(order);
+        // 同事务把 order.canceled 写入 outbox
+        orderCancelService.enqueueCanceledForOrder(orderId);
     }
 
     /**
@@ -410,40 +417,6 @@ public class OrderServiceImpl implements OrderService {
         return "SH" + System.currentTimeMillis()
                 + String.format("%04d", ThreadLocalRandom.current().nextInt(10000))
                 + String.format("%04d", sellerId % 10000);
-    }
-
-    private void publishCanceled(Order order) {
-        OrderCanceledEvent event = buildCanceledEvent(order);
-        // 有事务时提交后再发，避免下游在订单取消未落库时就消费；无事务（如定时扫描）则立即发
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    rabbitTemplate.convertAndSend(OrderRabbitConfig.ORDER_EXCHANGE,
-                            OrderRabbitConfig.RK_ORDER_CANCELED, event);
-                }
-            });
-        } else {
-            rabbitTemplate.convertAndSend(OrderRabbitConfig.ORDER_EXCHANGE,
-                    OrderRabbitConfig.RK_ORDER_CANCELED, event);
-        }
-    }
-
-    private OrderCanceledEvent buildCanceledEvent(Order order) {
-        List<OrderItem> items = orderItemMapper.selectByOrderId(order.getId());
-        OrderCanceledEvent event = new OrderCanceledEvent();
-        event.setOrderNo(order.getOrderNo());
-        event.setOrderId(order.getId());
-        event.setUserId(order.getUserId());
-        List<OrderCanceledEvent.Item> evtItems = new ArrayList<>();
-        for (OrderItem item : items) {
-            OrderCanceledEvent.Item it = new OrderCanceledEvent.Item();
-            it.setProductId(item.getProductId());
-            it.setQuantity(item.getQuantity());
-            evtItems.add(it);
-        }
-        event.setItems(evtItems);
-        return event;
     }
 
     private String genOrderNo(Long userId) {

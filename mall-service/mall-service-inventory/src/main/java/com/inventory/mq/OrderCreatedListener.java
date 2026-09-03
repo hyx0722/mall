@@ -1,10 +1,8 @@
 package com.inventory.mq;
 
-import com.inventory.bean.InventoryLog;
 import com.inventory.config.InventoryRabbitConfig;
-import com.inventory.mapper.InventoryLogMapper;
-import com.inventory.mapper.InventoryMapper;
-import com.model.bean.Inventory;
+import com.inventory.exception.StockLockException;
+import com.inventory.service.InventoryOrderService;
 import com.model.event.InventoryResultEvent;
 import com.model.event.OrderCreatedEvent;
 import lombok.extern.slf4j.Slf4j;
@@ -13,122 +11,105 @@ import org.redisson.api.RedissonClient;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 消费 order.created：对每个明细锁定库存（Redisson 分布式锁 + 条件 UPDATE），
- * 全部成功回执 inventory.deducted；任一失败则释放已锁定并回执 inventory.deduct_failed。
- *
- * 幂等：入口用 Redis SETNX 对 orderNo 打标（TTL 24h），重复投递/重投直接跳过，防止同一订单被扣两次库存。
+ * 消费 order.created：
+ * 1) 按商品 id 升序获取 Redisson 分布式锁（跨订单一致加锁序，避免死锁）；
+ * 2) 在单事务内完成「条件扣库存 + 写 change_type=3 流水」（InventoryOrderService），
+ *    任一商品不足/未初始化 -> 整单回滚并回执 deduct_failed；全部成功回执 deducted；
+ * 3) 幂等由 DB 流水承担（已有该订单 change_type=3 流水则跳过），不用「先 SETNX 后干活」，
+ *    消除处理中崩溃 -> 重投被挡 -> 订单悬挂的窗口；重复投递重复回执，order 侧仅记日志幂等无害。
  */
 @Component
 @Slf4j
 public class OrderCreatedListener {
 
     private static final int LOCK_WAIT_SECONDS = 5;
-    private static final long DEDUP_TTL_HOURS = 24L;
 
     @Autowired
-    InventoryMapper inventoryMapper;
-    @Autowired
-    InventoryLogMapper inventoryLogMapper;
+    InventoryOrderService inventoryOrderService;
     @Autowired
     RedissonClient redissonClient;
     @Autowired
     RabbitTemplate rabbitTemplate;
-    @Autowired
-    StringRedisTemplate stringRedisTemplate;
 
     @RabbitListener(queues = InventoryRabbitConfig.Q_ORDER_CREATED)
     public void onOrderCreated(OrderCreatedEvent event) {
         if (event == null || event.getItems() == null || event.getItems().isEmpty()) {
             return;
         }
-
-        // 幂等：同 orderNo 只处理一次（at-least-once 下防重复扣减）
-        String dedupKey = "dedup:order:" + event.getOrderNo();
-        Boolean firstTime = stringRedisTemplate.opsForValue().setIfAbsent(dedupKey, "1", DEDUP_TTL_HOURS, TimeUnit.HOURS);
-        if (Boolean.FALSE.equals(firstTime)) {
-            log.info("[inventory] 订单 {} 已处理过(重复消息)，跳过", event.getOrderNo());
-            return;
+        // 合并同商品行（防御性），保持 LinkedHashMap 遍历顺序稳定
+        Map<Long, Integer> productQty = new LinkedHashMap<>();
+        for (OrderCreatedEvent.Item item : event.getItems()) {
+            productQty.merge(item.getProductId(), item.getQuantity(), Integer::sum);
         }
-        log.info("[inventory] 收到下单事件 orderNo={}", event.getOrderNo());
 
-        // 记录已锁定的 (productId -> qty)，失败时整体回补
-        Map<Long, Integer> locked = new LinkedHashMap<>();
-        boolean ok = true;
+        // 按商品 id 升序加锁
+        List<Long> sortedIds = new ArrayList<>(productQty.keySet());
+        Collections.sort(sortedIds);
+        List<RLock> held = new ArrayList<>();
+        boolean lockedAll = false;
         try {
-            for (OrderCreatedEvent.Item item : event.getItems()) {
-                RLock lock = redissonClient.getLock("lock:stock:" + item.getProductId());
-                boolean gotLock = false;
+            for (Long productId : sortedIds) {
+                RLock lock = redissonClient.getLock("lock:stock:" + productId);
+                boolean acquired;
                 try {
-                    gotLock = lock.tryLock(LOCK_WAIT_SECONDS, TimeUnit.SECONDS);
-                    if (!gotLock) {
-                        ok = false;
-                        break;
-                    }
-                    if (!tryLockOne(event, item.getProductId(), item.getQuantity())) {
-                        ok = false;
-                        break;
-                    }
-                    locked.put(item.getProductId(), item.getQuantity());
-                } finally {
-                    if (gotLock && lock.isHeldByCurrentThread()) {
-                        lock.unlock();
-                    }
+                    acquired = lock.tryLock(LOCK_WAIT_SECONDS, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("[inventory] 订单 {} 获取商品 {} 锁被中断", event.getOrderNo(), productId);
+                    acquired = false;
+                }
+                if (acquired) {
+                    held.add(lock);
+                } else {
+                    log.warn("[inventory] 订单 {} 商品 {} 获取分布式锁超时", event.getOrderNo(), productId);
+                    break;
                 }
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            ok = false;
-        }
-
-        if (ok) {
-            InventoryResultEvent done = new InventoryResultEvent();
-            done.setOrderNo(event.getOrderNo());
-            rabbitTemplate.convertAndSend(InventoryRabbitConfig.ORDER_EXCHANGE,
-                    InventoryRabbitConfig.RK_DEDUCTED, done);
-            log.info("[inventory] 订单 {} 库存锁定完成", event.getOrderNo());
-        } else {
-            // 回补已锁定的库存，避免订单取消后占用
-            for (Map.Entry<Long, Integer> p : locked.entrySet()) {
-                inventoryMapper.releaseLocked(p.getKey(), p.getValue());
+            lockedAll = held.size() == sortedIds.size();
+            if (!lockedAll) {
+                replyDeductFailed(event);
+                return;
             }
-            InventoryResultEvent failed = new InventoryResultEvent();
-            failed.setOrderNo(event.getOrderNo());
-            rabbitTemplate.convertAndSend(InventoryRabbitConfig.ORDER_EXCHANGE,
-                    InventoryRabbitConfig.RK_DEDUCT_FAILED, failed);
-            log.warn("[inventory] 订单 {} 库存锁定失败", event.getOrderNo());
+            try {
+                inventoryOrderService.lockForOrder(event.getOrderId(), productQty);
+            } catch (StockLockException e) {
+                log.warn("[inventory] 订单 {} 库存锁定失败：{}", event.getOrderNo(), e.getMessage());
+                replyDeductFailed(event);
+                return;
+            }
+            replyDeducted(event);
+        } finally {
+            for (RLock lock : held) {
+                if (lock.isHeldByCurrentThread()) {
+                    lock.unlock();
+                }
+            }
         }
     }
 
-    /** 锁定单个商品库存并写流水；返回是否成功 */
-    private boolean tryLockOne(OrderCreatedEvent event, Long productId, Integer qty) {
-        Inventory row = inventoryMapper.selectByProductId(productId);
-        if (row == null) {
-            return false; // 该商品未初始化库存
-        }
-        int affected = inventoryMapper.lockStock(productId, qty);
-        if (affected == 0) {
-            return false; // 可用库存不足
-        }
-        // 写库存流水（change_type=3 锁定）
-        InventoryLog logRow = new InventoryLog();
-        logRow.setProductId(productId);
-        logRow.setOrderId(event.getOrderId());
-        logRow.setChangeType(3);
-        logRow.setChangeQuantity(qty);
-        logRow.setBeforeTotalStock(row.getTotalStock());
-        logRow.setAfterTotalStock(row.getTotalStock());
-        logRow.setBeforeLockedStock(row.getLockedStock());
-        logRow.setAfterLockedStock(row.getLockedStock() + qty);
-        logRow.setRemark("下单锁定");
-        inventoryLogMapper.insertLog(logRow);
-        return true;
+    private void replyDeducted(OrderCreatedEvent event) {
+        InventoryResultEvent done = new InventoryResultEvent();
+        done.setOrderNo(event.getOrderNo());
+        rabbitTemplate.convertAndSend(InventoryRabbitConfig.ORDER_EXCHANGE,
+                InventoryRabbitConfig.RK_DEDUCTED, done);
+        log.info("[inventory] 订单 {} 库存锁定完成", event.getOrderNo());
+    }
+
+    private void replyDeductFailed(OrderCreatedEvent event) {
+        InventoryResultEvent failed = new InventoryResultEvent();
+        failed.setOrderNo(event.getOrderNo());
+        rabbitTemplate.convertAndSend(InventoryRabbitConfig.ORDER_EXCHANGE,
+                InventoryRabbitConfig.RK_DEDUCT_FAILED, failed);
+        log.warn("[inventory] 订单 {} 库存锁定失败，回执 deduct_failed", event.getOrderNo());
     }
 }

@@ -37,6 +37,11 @@ CREATE TABLE `inventory_log` (
                                  KEY `idx_created_at` (`created_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存流水表';
 
+-- 幂等唯一键：同一订单同一商品同类型流水至多一条，作为消费幂等的 DB 兜底
+-- （order_id 为 NULL 的入库等行不受唯一约束影响；存量库若已有重复需先清理再执行）
+ALTER TABLE `inventory_log`
+    ADD UNIQUE KEY `uk_order_product_type` (`order_id`,`product_id`,`change_type`);
+
 CREATE TABLE `undo_log` (
                             `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
                             `branch_id` bigint NOT NULL COMMENT '分支事务ID',
