@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listOrders, cancelOrder } from '../api/order'
+import { listOrders, cancelOrder, confirmReceive } from '../api/order'
 import { money, orderStatusTag } from '../utils/format'
 
 const router = useRouter()
@@ -51,6 +51,25 @@ async function cancel(row) {
   }
 }
 
+async function receive(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认已收到订单「${row.orderNo}」的商品？`,
+      '确认收货',
+      { type: 'warning', confirmButtonText: '确认收货', cancelButtonText: '再等等' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await confirmReceive(row.id)
+    ElMessage.success('已确认收货')
+    load()
+  } catch {
+    // 拦截器已提示
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -87,6 +106,9 @@ onMounted(load)
               <el-button link type="danger" @click="goPay(row.id)">去支付</el-button>
               <el-button link @click="cancel(row)">取消订单</el-button>
             </template>
+            <el-button v-if="Number(row.orderStatus) === 2" link type="success" @click="receive(row)">
+              确认收货
+            </el-button>
           </template>
         </el-table-column>
       </el-table>

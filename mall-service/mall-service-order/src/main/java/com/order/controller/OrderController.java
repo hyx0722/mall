@@ -6,6 +6,8 @@ import com.model.bean.Result;
 import com.order.bean.CreateOrderRequest;
 import com.order.bean.OrderItem;
 import com.order.bean.SellerOrderVO;
+import com.order.bean.ShipRequest;
+import com.order.bean.Shipping;
 import com.order.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
@@ -67,9 +69,35 @@ public class OrderController {
         return Result.success();
     }
 
+    // ---------- 发货 / 确认收货（本次补全的状态机下半段） ----------
+
+    // 商家对自己商品所属订单发货；全部卖家都发货后整单 1待发货 -> 2待收货
+    @PostMapping("/seller/ship")
+    public Result sellerShip(@RequestBody @Validated ShipRequest request) {
+        Auths.requireLogin();
+        orderService.sellerShip(Auths.currentUserId(), request.getOrderId(),
+                request.getLogisticsCompany(), request.getTrackingNo(), request.getRemark());
+        return Result.success();
+    }
+
+    // 买家确认收货：整单已发货(2待收货) -> 3已完成
+    @PostMapping("/receive")
+    public Result receive(@RequestParam Long id) {
+        Auths.requireLogin();
+        orderService.buyerReceive(Auths.currentUserId(), id);
+        return Result.success();
+    }
+
+    // 买家查看某订单的物流发货单（归属校验后返回）
+    @GetMapping("/shippings")
+    public Result<List<Shipping>> shippings(@RequestParam Long orderId) {
+        Auths.requireLogin();
+        return Result.success(orderService.listShippings(Auths.currentUserId(), orderId));
+    }
+
     // ---------- 管理员：查看所有订单（内部系统，/order/admin/*） ----------
 
-    // 所有订单，可按订单状态过滤（order_status：0待付款 1待发货 2已发货 3已完成 4已取消）
+    // 所有订单，可按订单状态过滤（order_status：0待付款 1待发货 2待收货 3已完成 4已取消 5退款中 6已退款）
     @GetMapping("/admin/findAllOrder")
     public Result<List<Order>> adminFindAllOrder(@RequestParam(required = false) Integer status) {
         Auths.requireAdmin();

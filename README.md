@@ -89,6 +89,21 @@ mall
   2. 渠道异步回调（或测试钩子 `POST /pay/mock/success`）→ payment 验签 → 事务内幂等把 `pay_order` 置 `payment_status=1` 并落 `payment_record` → **事务提交后（`afterCommit`）发布 `pay.success`**；
   3. **order 服务 `PaySuccessListener` 消费 `pay.success`** → `markPaid`：`0 待付款 → 1 待发货`（`order_status=0` 条件，天然防重）。
 
+### 2.5 发货 → 确认收货 → 完成（订单状态机下半段）
+
+支付成功后订单停在 `1待发货`，随后的发货/收货/完成由 **order 服务本地状态机**推进（不涉及库存/支付，无需额外 MQ 事件），状态推进沿用「条件 UPDATE + 受影响行数」防重惯例：
+
+```
+支付成功(pay.success) markPaid              0待付款 → 1待发货  （同事务后冻结 receiver_* 收货快照）
+卖家对自有商品发货（新增 shipping 发货单）   1待发货 → 2待收货  （最后一卖触发整单翻转）
+买家确认收货                                 2待收货 → 3已完成  （complete_time 落值）
+```
+
+- **收货快照**：支付成功（`handlePaid`）后即以 `orders.address_id` 从 user 库冻结 `receiver_name/phone/address`（跨库直读，本仓已有同款先例），供卖家发货前预览与面单；地址已失效/缺失时尽力兜底默认地址，实在无地址则留给发货时再补一次。
+- **混单拆分发货**：`orders` 一行只承载整单状态，但一单可含多个卖家商品，故新增 `shipping` 表（`uk_order_seller(order_id, seller_id)`，每卖家每单一条）记录各卖家各自的发货单（物流公司/单号/发货时间）。整单 `2待收货` 由「该单已发货卖家数 == 该单卖家总数」判定，最后一个卖家发货时条件翻转 `1 → 2`。
+- **卖家发货** `POST /order/seller/ship`（orderId + 可选物流信息）：校验登录身份确有该单商品后写发货单。事务内**第一条语句对订单行 `select ... for update`**——串行化同一订单的多卖家并发发货，避免 RR 隔离级别下两个「最后一卖」互相读不到对方而把订单卡死在待发货；重复发货幂等（已存在发货单直接返回）。
+- **买家确认收货** `POST /order/receive?id=`：仅本人且订单处于 `2待收货` 时条件更新到 `3已完成`（同样先锁行再判定，与「最后一卖发货」并发安全）。
+
 ### 3. RabbitMQ 拓扑（常量统一在 `mall-common.RabbitTopology`）
 
 | 元素 | 名称 | 作用 |
@@ -201,6 +216,9 @@ mall
 | /order | GET /findAllOrder · GET /findDetailOrder?id= | 查我的订单 |
 | /order | POST /cancel?id | 买家手动取消本人待付款订单 |
 | /order | GET /seller/orders · POST /seller/cancel?id | 商家查看 / 整单取消含自己商品的订单 |
+| /order | POST /seller/ship | 商家发货（自有商品所属订单，写 shipping 发货单；最后一卖后整单 1→2） |
+| /order | POST /receive?id | 买家确认收货（待收货 → 已完成） |
+| /order | GET /shippings?orderId | 买家查看订单物流发货单列表 |
 | /order | GET /admin/findAllOrder?status · GET /admin/findDetailOrder?id · GET /admin/findOrderItems?orderId | 后台订单查询（仅管理员） |
 | /inventory | POST /addNumInventory · POST /restock?productId&qty | 初始化库存 / 补货 |
 | /inventory | GET /admin/listAll?productId | 后台库存查询（仅管理员） |
@@ -236,4 +254,5 @@ mall
 - **错误提示**：业务失败抛 `BusinessException`，由 `model.GlobalExceptionHandler` 统一转为 `Result.error(友好文案)`，避免向前端泄露 SQL 等内部信息。
 - **支付为真实 SDK 结构 + 占位配置**：`mall-service-payment` 已引入支付宝（`alipay-sdk-java`）与微信（`wechatpay-java` APIv3）官方 SDK 结构，但商户号/AppID/证书密钥当前为**占位值**（见 payment `application.yml` 的 `payment.*` 段），故渠道回调收不到；本地演示请置 `payment.mock.enabled=true` 后调 `POST /pay/mock/success` 模拟支付成功（走与真实回调相同的幂等落库与 `pay.success` 事件）。
 - **支付超时自动取消**：order 服务定时任务（默认每 60s）扫描超过 `order.pay-timeout-minutes`（默认 30 分钟）未支付的待付款订单并取消（0 → 4），发布 `order.canceled`：inventory 侧释放该订单锁定库存（写 `inventory_log` change_type=4）、payment 侧关闭该订单未付支付单。取消与支付同为 `order_status=0` 条件更新，谁先提交谁生效，不会误发货。
-- **已知未完成**：退款/售后链路、真正可用的分布式事务（Seata 依赖已移除，`@GlobalTransactional` 仅演示用后已清理）尚未实现。另取消落库与 `order.canceled` 事件发布非原子（发布失败时订单已取消但库存未释放，仅靠下一次扫描补 canceltime 不会重发事件，需 outbox/补偿），演示可接受。
+- **发货/收货并发**：`/seller/ship` 与 `/receive` 事务内第一条语句对订单行 `select ... for update`，串行化同一订单的并发操作。下单时锁库存、支付、取消等已处理，故发货按「卖家是否已全部发货」聚合整单推进；混单（多卖家）必须各自都发货后整单才 `1 → 2待收货`，买家确认整单收货后 `→ 3已完成`。
+- **已知未完成**：退款/售后链路（`refund` 表 / `order_status` 5退款中、6已退款 / `inventory_log` change_type=6 / `payment_status=2` 等均已预留但无代码路径）、真正可用的分布式事务（Seata 依赖已移除，`@GlobalTransactional` 仅演示用后已清理）尚未实现。另取消落库与 `order.canceled` 事件发布非原子（发布失败时订单已取消但库存未释放，仅靠下一次扫描补 canceltime 不会重发事件，需 outbox/补偿），演示可接受。

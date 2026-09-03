@@ -14,13 +14,22 @@ import java.util.List;
 @Mapper
 public interface OrderMapper extends BaseMapper<Order> {
 
-    @Select("select id,order_no,user_id,total_amount,order_status,shipping_status from orders " +
-            "where user_id=#{userId}")
+    // 我的订单列表（全列：含收货快照/发货时间等，供买家端展示）
+    @Select("select * from orders where user_id=#{userId} order by id desc")
     List<Order> findAllOrder(@Param("userId") Long userId);
 
+    // 我的订单详情（归属条件 id AND user_id）
     @Select("select * from orders " +
             "where id=#{id} and user_id=#{userId}")
     Order findDetailOrder(@Param("id") Long id,@Param("userId") Long userId);
+
+    // 发货并发控制：锁定订单行（必须是相关事务里第一条 DB 语句，避免 RR 读快照固化导致判断失真）
+    @Select("select * from orders where id=#{id} for update")
+    Order selectForUpdate(@Param("id") Long id);
+
+    // 买家确认收货并发控制：锁定订单行且限定归属（id AND user_id）
+    @Select("select * from orders where id=#{id} and user_id=#{userId} for update")
+    Order selectOwnedForUpdate(@Param("id") Long id, @Param("userId") Long userId);
 
     // 创建订单（初始状态 0-待付款），由数据库自增主键回填 id
     @Insert("insert into orders(order_no,user_id,address_id,total_amount,discount_amount,order_status,remark,created_time,updated_time) " +
@@ -35,6 +44,42 @@ public interface OrderMapper extends BaseMapper<Order> {
     // 支付成功回执：待付款 -> 待发货（防重：仅当仍处于待付款）
     @Update("update orders set order_status=1 where id=#{orderId} and order_status=0")
     int markPaid(@Param("orderId") Long orderId);
+
+    // 买家确认收货：待收货 -> 已完成（防重：仅当仍处于待收货；归属 id AND user_id）
+    @Update("update orders set order_status=3, shipping_status=2, complete_time=now() " +
+            "where id=#{id} and user_id=#{userId} and order_status=2")
+    int receiveOrder(@Param("id") Long id, @Param("userId") Long userId);
+
+    // 该订单涉及的卖家总数（order_item 跨库 join product 去重）
+    @Select("select count(distinct p.user_id) from order_item oi " +
+            "join mall_service_product.product p on p.id=oi.product_id " +
+            "where oi.order_id=#{orderId}")
+    long countTotalSellers(@Param("orderId") Long orderId);
+
+    // 该订单全部卖家都已发货：待发货 -> 待收货（防重：仅当仍处于待发货）
+    @Update("update orders set order_status=2, shipping_status=1, shipping_time=now() " +
+            "where id=#{orderId} and order_status=1")
+    int markFullyShipped(@Param("orderId") Long orderId);
+
+    // 补收货人快照（仅当仍未快照时写入，防并发覆盖）
+    @Update("update orders set receiver_name=#{name}, receiver_phone=#{phone}, receiver_address=#{address} " +
+            "where id=#{orderId} and receiver_name is null")
+    int snapshotReceiver(@Param("orderId") Long orderId, @Param("name") String name,
+                         @Param("phone") String phone, @Param("address") String address);
+
+    // 跨库读买家收货地址（支付/发货时冻结快照）：按下单时选定的地址
+    // receiver_address 列宽 255，拼接地址需 LEFT 截断防溢出
+    @Select("select receiver_name as receiverName, receiver_phone as receiverPhone, " +
+            "left(concat_ws(' ', province, city, district, detail_address), 255) as receiverAddress " +
+            "from mall_service_user.user_address where id=#{addressId} and user_id=#{userId}")
+    Order selectAddressByIdAndUser(@Param("addressId") Long addressId, @Param("userId") Long userId);
+
+    // 跨库读买家收货地址兜底：默认地址优先，否则最早一条（addressId 失效/未填时）
+    @Select("select receiver_name as receiverName, receiver_phone as receiverPhone, " +
+            "left(concat_ws(' ', province, city, district, detail_address), 255) as receiverAddress " +
+            "from mall_service_user.user_address where user_id=#{userId} " +
+            "order by is_default desc, id asc limit 1")
+    Order selectDefaultAddressByUser(@Param("userId") Long userId);
 
     // 支付超时取消：待付款超时 -> 已取消（防重：仅当仍处于待付款；返回受影响行数，供是否发释放事件）
     @Select("select id, order_no, user_id from orders " +
@@ -64,10 +109,9 @@ public interface OrderMapper extends BaseMapper<Order> {
             "where oi.order_id=#{orderId} and p.user_id<>#{userId}")
     long countForeignItemLines(@Param("orderId") Long orderId, @Param("userId") Long userId);
 
-    // 商家：查看含自己商品的订单（跨库 product 判断归属），带买家名
+    // 商家：查看含自己商品的订单（跨库 product 判断归属），带买家名 + 收货快照
     @Select("<script>" +
-            "select distinct o.id,o.order_no,o.user_id,o.address_id,o.total_amount,o.discount_amount,o.order_status," +
-            "o.shipping_status,o.remark,o.created_time,o.updated_time,u.username as buyer_name " +
+            "select distinct o.*,u.username as buyer_name " +
             "from orders o left join mall_service_user.user u on u.id=o.user_id " +
             "where exists (select 1 from order_item oi " +
             "  join mall_service_product.product p on p.id=oi.product_id " +
@@ -78,17 +122,17 @@ public interface OrderMapper extends BaseMapper<Order> {
 
     // ---------- 管理员：查看所有订单 ----------
 
-    // 所有订单（无归属条件），可按订单状态过滤；跨库带买家用户名
+    // 所有订单（无归属条件），可按订单状态过滤；跨库带买家用户名 + 收货快照
     @Select("<script>" +
-            "select o.id,o.order_no,o.user_id,o.address_id,o.total_amount,o.discount_amount,o.order_status,o.shipping_status,o.remark,o.created_time,o.updated_time,u.username as buyer_name " +
+            "select o.*,u.username as buyer_name " +
             "from orders o left join mall_service_user.user u on u.id=o.user_id where 1=1" +
             "<if test='status != null'> and o.order_status=#{status}</if>" +
             " order by o.id desc" +
             "</script>")
     List<Order> findAdminOrders(@Param("status") Integer status);
 
-    // 任意订单头（无归属条件）；跨库带买家用户名
-    @Select("select o.id,o.order_no,o.user_id,o.address_id,o.total_amount,o.discount_amount,o.order_status,o.shipping_status,o.remark,o.created_time,o.updated_time,u.username as buyer_name " +
+    // 任意订单头（无归属条件）；跨库带买家用户名 + 收货快照
+    @Select("select o.*,u.username as buyer_name " +
             "from orders o left join mall_service_user.user u on u.id=o.user_id where o.id=#{id}")
     Order findOrderById(@Param("id") Long id);
 }

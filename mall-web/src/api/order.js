@@ -32,3 +32,18 @@ export function listSellerOrders() {
 export function sellerCancelOrder(id) {
   return request.post('/order/seller/cancel', null, { params: { id } })
 }
+
+// 商家发货：body { orderId, logisticsCompany, trackingNo, remark }（物流信息可空）
+export function sellerShip(payload) {
+  return request.post('/order/seller/ship', payload)
+}
+
+// 买家确认收货（订单已全部发货时可用）
+export function confirmReceive(id) {
+  return request.post('/order/receive', null, { params: { id } })
+}
+
+// 买家查看某订单的物流发货单列表
+export function listShippings(orderId) {
+  return request.get('/order/shippings', { params: { orderId } })
+}

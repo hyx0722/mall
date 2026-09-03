@@ -1,13 +1,41 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listSellerOrders, sellerCancelOrder } from '../api/order'
+import { listSellerOrders, sellerCancelOrder, sellerShip } from '../api/order'
 import { money, orderStatusTag } from '../utils/format'
 
 const router = useRouter()
 const loading = ref(true)
 const orders = ref([])
+
+// 发货弹窗
+const shipVisible = ref(false)
+const shipForm = reactive({ orderId: null, logisticsCompany: '', trackingNo: '', remark: '' })
+
+function openShip(row) {
+  shipForm.orderId = row.order.id
+  shipForm.logisticsCompany = ''
+  shipForm.trackingNo = ''
+  shipForm.remark = ''
+  shipVisible.value = true
+}
+
+async function doShip() {
+  try {
+    await sellerShip({
+      orderId: shipForm.orderId,
+      logisticsCompany: shipForm.logisticsCompany || null,
+      trackingNo: shipForm.trackingNo || null,
+      remark: shipForm.remark || null,
+    })
+    ElMessage.success('发货成功')
+    shipVisible.value = false
+    load()
+  } catch {
+    // 拦截器已提示
+  }
+}
 
 function fmtTime(t) {
   return t ? String(t).replace('T', ' ').slice(0, 19) : '-'
@@ -74,6 +102,15 @@ onMounted(load)
             {{ row.order.buyerName || ('用户#' + row.order.userId) }}
           </template>
         </el-table-column>
+        <el-table-column label="收货信息" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <template v-if="row.order.receiverName">
+              {{ row.order.receiverName }} {{ row.order.receiverPhone }}<br />
+              <span class="addr">{{ row.order.receiverAddress || '-' }}</span>
+            </template>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="金额" width="110">
           <template #default="{ row }">¥{{ money(row.order.totalAmount) }}</template>
         </el-table-column>
@@ -84,11 +121,26 @@ onMounted(load)
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="我的发货" width="150">
+          <template #default="{ row }">
+            <el-tag v-if="row.shipInfo" type="success" size="small">已发货</el-tag>
+            <el-tag v-else-if="Number(row.order.orderStatus) === 1" type="info" size="small">待发货</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="下单时间" width="170">
           <template #default="{ row }">{{ fmtTime(row.order.createdTime) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
+            <el-button
+              v-if="Number(row.order.orderStatus) === 1 && !row.shipInfo"
+              link
+              type="primary"
+              @click="openShip(row)"
+            >
+              发货
+            </el-button>
             <el-button
               link
               type="danger"
@@ -102,6 +154,24 @@ onMounted(load)
       </el-table>
       <el-empty v-if="!loading && !orders.length" description="还没有买家下过你商品的订单" />
     </el-card>
+
+    <el-dialog v-model="shipVisible" title="发货" width="480px">
+      <el-form :model="shipForm" label-width="90px">
+        <el-form-item label="物流公司">
+          <el-input v-model="shipForm.logisticsCompany" placeholder="选填" maxlength="50" />
+        </el-form-item>
+        <el-form-item label="物流单号">
+          <el-input v-model="shipForm.trackingNo" placeholder="选填" maxlength="64" />
+        </el-form-item>
+        <el-form-item label="发货备注">
+          <el-input v-model="shipForm.remark" placeholder="选填" maxlength="255" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="shipVisible = false">取消</el-button>
+        <el-button type="primary" @click="doShip">确认发货</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -123,5 +193,9 @@ onMounted(load)
   white-space: pre-line;
   color: #303133;
   line-height: 1.6;
+}
+.addr {
+  color: #909399;
+  font-size: 12px;
 }
 </style>

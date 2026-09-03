@@ -12,10 +12,12 @@ import com.model.util.ThreadLocalUtil;
 import com.order.bean.CreateOrderRequest;
 import com.order.bean.OrderItem;
 import com.order.bean.SellerOrderVO;
+import com.order.bean.Shipping;
 import com.order.config.OrderRabbitConfig;
 import com.order.fein.ProductFeignClient;
 import com.order.mapper.OrderItemMapper;
 import com.order.mapper.OrderMapper;
+import com.order.mapper.ShippingMapper;
 import com.order.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -38,6 +40,8 @@ public class OrderServiceImpl implements OrderService {
     OrderMapper orderMapper;
     @Autowired
     OrderItemMapper orderItemMapper;
+    @Autowired
+    ShippingMapper shippingMapper;
     @Autowired
     ProductFeignClient productFeignClient;
     @Autowired
@@ -176,9 +180,11 @@ public class OrderServiceImpl implements OrderService {
         orderMapper.markDeductFailed(event.getOrderNo());
     }
 
-    /** 处理支付成功回执：待付款 -> 待发货（markPaid 带 order_status=0 条件防重） */
+    /** 处理支付成功回执：待付款 -> 待发货（markPaid 带 order_status=0 条件防重），并冻结收货人快照 */
     public void handlePaid(PaySuccessEvent event) {
         orderMapper.markPaid(event.getOrderId());
+        // 快照尽力而为：markPaid 成功/幂等重投都尝试补齐；订单无地址或地址已删时跳过，留给发货懒兜底
+        snapshotReceiverIfAbsent(event.getOrderId());
     }
 
     /**
@@ -238,6 +244,8 @@ public class OrderServiceImpl implements OrderService {
             boolean hasForeign = orderMapper.countForeignItemLines(order.getId(), userId) > 0;
             vo.setCancellable(order.getOrderStatus() != null
                     && order.getOrderStatus() == 0 && !hasForeign);
+            // 本商家的发货单（null=未发货，用于卖家端判断是否显示「发货」操作）
+            vo.setShipInfo(shippingMapper.selectByOrderAndSeller(order.getId(), userId));
             result.add(vo);
         }
         return result;
@@ -266,6 +274,142 @@ public class OrderServiceImpl implements OrderService {
         }
         Order order = orderMapper.findOrderById(orderId);
         publishCanceled(order);
+    }
+
+    /**
+     * 商家发货（对自有商品所属订单）：
+     * 事务第一条语句锁定订单行（select ... for update），串行化同一订单的并发发货——
+     * 否则 RR 隔离级别下两个「最后一卖」各自读快照都会以为自己不是最后一个，订单会卡死在待发货。
+     */
+    @Override
+    @Transactional
+    public void sellerShip(Long sellerId, Long orderId, String logisticsCompany, String trackingNo, String remark) {
+        if (sellerId == null) {
+            throw new BusinessException("请先登录");
+        }
+        if (orderId == null) {
+            throw new BusinessException("缺少订单 id");
+        }
+        // 1) 加锁读必须是事务第一条 DB 语句（先于任何普通 SELECT），串行化同一订单的并发发货
+        Order order = orderMapper.selectForUpdate(orderId);
+        if (order == null) {
+            throw new BusinessException("订单不存在");
+        }
+        // 2) 归属：该订单里必须有本卖家的商品，否则越权
+        if (orderMapper.countMyItemLines(orderId, sellerId) == 0) {
+            throw new BusinessException("该订单中没有你的商品");
+        }
+        // 3) 幂等：本卖家对同一订单已有发货单（重复点击/重复提交）直接返回成功
+        if (shippingMapper.selectByOrderAndSeller(orderId, sellerId) != null) {
+            log.info("[order] 卖家 {} 对订单 {} 已发过货，跳过重复发货", sellerId, orderId);
+            return;
+        }
+        // 4) 仅整单仍待发货可发货（拦截未付款/已取消/已发货待收货等）
+        if (order.getOrderStatus() == null || order.getOrderStatus() != 1) {
+            throw new BusinessException("订单当前状态不可发货");
+        }
+        // 5) 收货快照懒兜底：若支付时未冻结（如历史单/地址当时失效），发货前尽力补一次
+        if (order.getReceiverName() == null) {
+            snapshotReceiverIfAbsent(orderId);
+        }
+        // 6) 写发货单
+        Shipping shipping = new Shipping();
+        shipping.setShipNo(genShipNo(sellerId));
+        shipping.setOrderId(orderId);
+        shipping.setSellerId(sellerId);
+        shipping.setLogisticsCompany(logisticsCompany);
+        shipping.setTrackingNo(trackingNo);
+        shipping.setRemark(remark);
+        shippingMapper.insertShipping(shipping);
+        log.info("[order] 卖家 {} 发货订单 {} 成功 shipNo={}", sellerId, orderId, shipping.getShipNo());
+        // 7) 若这是最后一卖，整单 1待发货 -> 2待收货（条件更新防重）
+        long shipped = shippingMapper.countShippedSellers(orderId);
+        long total = orderMapper.countTotalSellers(orderId);
+        if (shipped >= total && orderMapper.markFullyShipped(orderId) > 0) {
+            log.info("[order] 订单 {} 全部卖家已发货 -> 待收货", orderId);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void buyerReceive(Long userId, Long orderId) {
+        if (userId == null) {
+            throw new BusinessException("请先登录");
+        }
+        if (orderId == null) {
+            throw new BusinessException("缺少订单 id");
+        }
+        // 加锁读且限定归属（id AND user_id），并作为事务第一条 DB 语句
+        Order order = orderMapper.selectOwnedForUpdate(orderId, userId);
+        if (order == null || order.getOrderStatus() == null) {
+            // 统一文案，避免泄露他人订单状态
+            throw new BusinessException("订单不存在或当前状态不可收货");
+        }
+        if (order.getOrderStatus() == 3) {
+            log.info("[order] 订单 {} 已确认收货，跳过重复确认", orderId);
+            return; // 已完成的幂等返回
+        }
+        if (order.getOrderStatus() != 2) {
+            throw new BusinessException("订单不存在或当前状态不可收货");
+        }
+        int affected = orderMapper.receiveOrder(orderId, userId);
+        if (affected == 0) {
+            throw new BusinessException("订单不存在或当前状态不可收货");
+        }
+        log.info("[order] 买家 {} 确认收货订单 {} 完成", userId, orderId);
+    }
+
+    @Override
+    public List<Shipping> listShippings(Long userId, Long orderId) {
+        if (userId == null) {
+            throw new BusinessException("请先登录");
+        }
+        if (orderId == null) {
+            throw new BusinessException("缺少订单 id");
+        }
+        // 归属校验后返回物流发货单列表
+        Order order = orderMapper.findDetailOrder(orderId, userId);
+        if (order == null) {
+            throw new BusinessException("订单不存在");
+        }
+        return shippingMapper.selectByOrderId(orderId);
+    }
+
+    /** 尽力补收货人快照（receiver_name 为空才写）。无可用地址/地址已删则跳过，不抛异常。 */
+    private void snapshotReceiverIfAbsent(Long orderId) {
+        try {
+            Order order = orderMapper.findOrderById(orderId);
+            if (order == null || order.getReceiverName() != null) {
+                return; // 已快照
+            }
+            Order addr = resolveReceiverSource(order);
+            if (addr == null || addr.getReceiverName() == null) {
+                log.warn("[order] 订单 {} 无可用的收货地址快照源，发货时将再尝试兜底", orderId);
+                return;
+            }
+            orderMapper.snapshotReceiver(orderId, addr.getReceiverName(), addr.getReceiverPhone(), addr.getReceiverAddress());
+            log.info("[order] 订单 {} 已冻结收货人快照 {} {}", orderId, addr.getReceiverName(), addr.getReceiverPhone());
+        } catch (Exception e) {
+            // 快照是尽力而为，失败不应影响支付/发货主流程
+            log.warn("[order] 补收货人快照失败 orderId={}", orderId, e);
+        }
+    }
+
+    /** 收货快照来源：按下单选定地址取，取不到退默认/最早地址。 */
+    private Order resolveReceiverSource(Order order) {
+        if (order.getAddressId() != null) {
+            Order byId = orderMapper.selectAddressByIdAndUser(order.getAddressId(), order.getUserId());
+            if (byId != null && byId.getReceiverName() != null) {
+                return byId;
+            }
+        }
+        return orderMapper.selectDefaultAddressByUser(order.getUserId());
+    }
+
+    private String genShipNo(Long sellerId) {
+        return "SH" + System.currentTimeMillis()
+                + String.format("%04d", ThreadLocalRandom.current().nextInt(10000))
+                + String.format("%04d", sellerId % 10000);
     }
 
     private void publishCanceled(Order order) {

@@ -48,9 +48,11 @@ onMounted(load)
       <el-select v-model="status" placeholder="全部状态" clearable class="sel" @change="onStatusChange">
         <el-option label="待付款" :value="0" />
         <el-option label="待发货" :value="1" />
-        <el-option label="已发货" :value="2" />
+        <el-option label="待收货" :value="2" />
         <el-option label="已完成" :value="3" />
         <el-option label="已取消" :value="4" />
+        <el-option label="退款中" :value="5" />
+        <el-option label="已退款" :value="6" />
       </el-select>
     </div>
 

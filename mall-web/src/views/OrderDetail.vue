@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getOrderDetail, cancelOrder } from '../api/order'
+import { getOrderDetail, cancelOrder, confirmReceive, listShippings } from '../api/order'
 import { money, orderStatusTag } from '../utils/format'
 
 const route = useRoute()
@@ -10,6 +10,7 @@ const router = useRouter()
 
 const loading = ref(true)
 const order = ref(null)
+const shippings = ref([])
 
 function fmtTime(t) {
   return t ? String(t).replace('T', ' ').slice(0, 19) : '-'
@@ -39,9 +40,18 @@ async function load() {
     order.value = (await getOrderDetail(route.params.id)) || null
   } catch {
     order.value = null
-  } finally {
-    loading.value = false
   }
+  // 物流列表尽力而为：失败不影响订单详情展示
+  if (order.value) {
+    try {
+      shippings.value = (await listShippings(order.value.id)) || []
+    } catch {
+      shippings.value = []
+    }
+  } else {
+    shippings.value = []
+  }
+  loading.value = false
 }
 
 async function cancel() {
@@ -58,6 +68,26 @@ async function cancel() {
   try {
     await cancelOrder(order.value.id)
     ElMessage.success('订单已取消')
+    load()
+  } catch {
+    // 拦截器已提示
+  }
+}
+
+async function receive() {
+  if (!order.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确认已收到订单「${order.value.orderNo}」的商品？`,
+      '确认收货',
+      { type: 'warning', confirmButtonText: '确认收货', cancelButtonText: '再等等' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await confirmReceive(order.value.id)
+    ElMessage.success('已确认收货')
     load()
   } catch {
     // 拦截器已提示
@@ -85,12 +115,27 @@ onMounted(load)
             </el-button>
             <el-button @click="cancel">取消订单</el-button>
           </div>
+          <div v-if="Number(order.orderStatus) === 2" class="actions">
+            <el-button type="success" @click="receive">确认收货</el-button>
+          </div>
         </div>
         <el-descriptions :column="2" border class="desc">
           <el-descriptions-item v-for="r in descriptions()" :key="r.label" :label="r.label">
             {{ r.value }}
           </el-descriptions-item>
         </el-descriptions>
+
+        <template v-if="shippings.length">
+          <h4 class="sub-title">物流信息</h4>
+          <el-table :data="shippings" style="width: 100%">
+            <el-table-column prop="shipNo" label="发货单号" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="logisticsCompany" label="物流公司" min-width="120" />
+            <el-table-column prop="trackingNo" label="物流单号" min-width="160" show-overflow-tooltip />
+            <el-table-column label="发货时间" width="180">
+              <template #default="{ row }">{{ fmtTime(row.createdTime) }}</template>
+            </el-table-column>
+          </el-table>
+        </template>
       </template>
     </el-card>
   </div>
@@ -118,4 +163,8 @@ onMounted(load)
   align-items: center;
   gap: 10px;
 }
+.sub-title {
+  margin: 20px 0 10px;
+}
+
 </style>

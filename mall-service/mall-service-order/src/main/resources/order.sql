@@ -45,6 +45,23 @@ CREATE TABLE `order_item` (
                               CONSTRAINT `fk_order_item_order` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单明细表';
 
+-- 3. 发货单表（每「订单+卖家」一条，支持混单各卖家分开发货；一单无行级拆分需求）
+--    订单级 order_status 由「该单卖家数 == 已发货卖家数」推导推进到 2-待收货。
+--    已按本模块建库的存量环境：单独执行下面 CREATE TABLE 即可（orders 的快照列已存在）。
+CREATE TABLE `shipping` (
+                            `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '发货单ID',
+                            `ship_no`           VARCHAR(32)     NOT NULL                COMMENT '发货单号（业务唯一）',
+                            `order_id`          BIGINT UNSIGNED NOT NULL                COMMENT '订单ID（逻辑外键 -> orders.id）',
+                            `seller_id`         BIGINT UNSIGNED NOT NULL                COMMENT '卖家用户ID（product.user_id，逻辑外键 -> user_db.user.id）',
+                            `logistics_company` VARCHAR(50)     DEFAULT NULL            COMMENT '物流公司',
+                            `tracking_no`       VARCHAR(64)     DEFAULT NULL            COMMENT '物流单号',
+                            `remark`            VARCHAR(255)    DEFAULT NULL            COMMENT '发货备注',
+                            `created_time`        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发货时间',
+                            PRIMARY KEY (`id`),
+                            UNIQUE KEY `uk_ship_no` (`ship_no`),
+                            UNIQUE KEY `uk_order_seller` (`order_id`,`seller_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='发货单表';
+
 CREATE TABLE `undo_log` (
                             `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
                             `branch_id` bigint NOT NULL COMMENT '分支事务ID',
