@@ -20,7 +20,7 @@ public interface ProductMapper {
 
     // 按卖家用户名查其发布的在售商品（保留既有跨库 mall_service_user 依赖）
     @Select("select id,name,subtitle,main_image,price from product " +
-            "where user_id=(select user_id from mall_service_user.user where username=#{username}) and status=1 " +
+            "where user_id=(select id from mall_service_user.user where username=#{username}) and status=1 " +
             "limit #{size} offset #{offset}")
     List<Product> findProductByUserName(@Param("offset") Integer offset, @Param("size") Integer size, @Param("username") String username);
 
