@@ -2,8 +2,8 @@ package com.inventory.service.impl;
 
 import com.inventory.bean.InventoryLog;
 import com.inventory.mapper.InventoryLogMapper;
-import com.inventory.mapper.InventoryNumMapper;
-import com.inventory.service.InventoryNumService;
+import com.inventory.mapper.InventoryFeinMapper;
+import com.inventory.service.InventoryFeinService;
 import com.model.bean.Inventory;
 import com.model.bean.Product;
 import com.model.exception.BusinessException;
@@ -12,26 +12,26 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class InventoryNumServiceImpl implements InventoryNumService {
+public class InventoryFeinServiceImpl implements InventoryFeinService {
     @Autowired
-    InventoryNumMapper inventoryNumMapper;
+    InventoryFeinMapper inventoryFeinMapper;
     @Autowired
     InventoryLogMapper inventoryLogMapper;
 
     @Override
     public Inventory findNumInventory(Product product) {
-        return inventoryNumMapper.findNumInventory(product);
+        return inventoryFeinMapper.findNumInventory(product);
     }
 
     @Override
     @Transactional
     public void addNumInventory(Product product) {
-        inventoryNumMapper.addNumInventory(product);
+        inventoryFeinMapper.addNumInventory(product);
     }
 
     @Override
     public java.util.List<Inventory> listAllInventory(Long productId) {
-        return inventoryNumMapper.findAllInventory(productId);
+        return inventoryFeinMapper.findAllInventory(productId);
     }
 
     @Override
@@ -46,11 +46,11 @@ public class InventoryNumServiceImpl implements InventoryNumService {
         if (qty == null || qty < 1) {
             throw new BusinessException("补货数量必须大于 0");
         }
-        Inventory row = inventoryNumMapper.findByProductIdAndUser(productId, userId);
+        Inventory row = inventoryFeinMapper.findByProductIdAndUser(productId, userId);
         if (row == null) {
             throw new BusinessException("库存不存在或无权操作");
         }
-        int affected = inventoryNumMapper.addStock(productId, userId, qty);
+        int affected = inventoryFeinMapper.addStock(productId, userId, qty);
         if (affected == 0) {
             throw new BusinessException("补货失败，请重试");
         }

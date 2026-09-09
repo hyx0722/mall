@@ -9,7 +9,7 @@ import lombok.Data;
  * 管理员修改用户：必填 id，其余字段仅传需修改的项。
  */
 @Data
-public class AdminUserUpdateRequest {
+public class UserAdminUpdateRequest {
 
     @NotNull(message = "缺少用户 id")
     private Long id;

@@ -5,7 +5,7 @@ import com.model.bean.Product;
 
 import java.util.List;
 
-public interface InventoryNumService {
+public interface InventoryFeinService {
 
     Inventory findNumInventory(Product product);
 

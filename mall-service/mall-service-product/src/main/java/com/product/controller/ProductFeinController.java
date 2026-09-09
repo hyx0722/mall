@@ -4,8 +4,8 @@ package com.product.controller;
 import com.model.bean.Product;
 import com.model.bean.Result;
 import com.model.util.ThreadLocalUtil;
-import com.product.bean.UpdateProductRequest;
-import com.product.service.ProductNumService;
+import com.product.bean.ProductUpdateRequest;
+import com.product.service.ProductFeinService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,19 +23,19 @@ import java.util.Map;
 @RestController
 @Validated
 @Slf4j
-public class ProductNumController {
+public class ProductFeinController {
     @Autowired
-    ProductNumService productNumService;
+    ProductFeinService productFeinService;
 
     //商家上架商品：同 user_id+name 重复上架显式报错；唯一键在并发下兜底。
     //insert 后主键已回填，返回带 id 的实体，供“建商品->初始化库存”链路复用
     @PostMapping("/addNumProduct")
     public Result<Product> addNumProduct(@RequestBody @Validated Product product){
-        if (productNumService.findNumProductByUserIdAndName(product.getUserId(), product.getName()) != null){
+        if (productFeinService.findNumProductByUserIdAndName(product.getUserId(), product.getName()) != null){
             return Result.error("该商品已存在，请在已有商品页面修改");
         }
         try {
-            productNumService.addNumProduct(product);
+            productFeinService.addNumProduct(product);
         } catch (DuplicateKeyException e) {
             //并发双击等场景命中唯一键
             return Result.error("该商品已存在，请在已有商品页面修改");
@@ -45,15 +45,15 @@ public class ProductNumController {
 
     //商家编辑自己的商品（部分更新），归属以登录态 user_id 为准
     @PutMapping("/updateProduct")
-    public Result updateProduct(@RequestBody @Valid UpdateProductRequest request) {
-        productNumService.updateProduct(currentUserId(), request);
+    public Result updateProduct(@RequestBody @Valid ProductUpdateRequest request) {
+        productFeinService.updateProduct(currentUserId(), request);
         return Result.success();
     }
 
     //商家上/下架自己的商品
     @PutMapping("/shelfProduct")
     public Result shelfProduct(@RequestParam Long id, @RequestParam Integer status) {
-        productNumService.changeProductStatus(currentUserId(), id, status);
+        productFeinService.changeProductStatus(currentUserId(), id, status);
         return Result.success();
     }
 

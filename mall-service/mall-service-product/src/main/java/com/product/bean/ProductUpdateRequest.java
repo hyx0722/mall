@@ -13,7 +13,7 @@ import java.math.BigDecimal;
  * Hibernate Validator 对 @URL/@DecimalMin/@Size 在值为 null 时视为合法，故可直接用于部分更新。
  */
 @Data
-public class UpdateProductRequest {
+public class ProductUpdateRequest {
 
     @NotNull(message = "商品 id 不能为空")
     private Long id;

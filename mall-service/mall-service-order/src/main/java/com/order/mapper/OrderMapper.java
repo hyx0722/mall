@@ -124,17 +124,6 @@ public interface OrderMapper extends BaseMapper<Order> {
             "</script>")
     List<Order> findSellerOrders(@Param("userId") Long userId);
 
-    // ---------- 管理员：查看所有订单 ----------
-
-    // 所有订单（无归属条件），可按订单状态过滤；跨库带买家用户名 + 收货快照
-    @Select("<script>" +
-            "select o.*,u.username as buyer_name " +
-            "from orders o left join mall_service_user.user u on u.id=o.user_id where 1=1" +
-            "<if test='status != null'> and o.order_status=#{status}</if>" +
-            " order by o.id desc" +
-            "</script>")
-    List<Order> findAdminOrders(@Param("status") Integer status);
-
     // 任意订单头（无归属条件）；跨库带买家用户名 + 收货快照
     @Select("select o.*,u.username as buyer_name " +
             "from orders o left join mall_service_user.user u on u.id=o.user_id where o.id=#{id}")

@@ -1,6 +1,7 @@
 package com.user.config;
 
-import com.user.service.UserService;
+
+import com.user.service.UserAdminService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,7 +28,7 @@ public class UserStartupSetup implements ApplicationRunner {
     @Autowired
     private DataSource dataSource;
     @Autowired
-    private UserService userService;
+    private UserAdminService userAdminService;
 
     @Value("${mall.admin.username:admin}")
     private String adminUsername;
@@ -55,14 +56,14 @@ public class UserStartupSetup implements ApplicationRunner {
 
     private void ensureAdmin() {
         try {
-            if (userService.isAdminExist()) {
+            if (userAdminService.isAdminExist()) {
                 return;
             }
             if (adminUsername == null || adminUsername.isBlank()) {
                 return;
             }
             String pwd = (adminPassword == null || adminPassword.isBlank()) ? "admin123" : adminPassword;
-            userService.seedAdmin(adminUsername, pwd);
+            userAdminService.seedAdmin(adminUsername, pwd);
             log.info("[user] 已初始化管理员账号 username={} password={}（建议登录后台后修改密码）", adminUsername, pwd);
         } catch (Exception e) {
             log.warn("[user] 初始化管理员失败（忽略）: {}", e.getMessage());

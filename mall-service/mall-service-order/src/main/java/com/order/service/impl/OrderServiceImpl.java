@@ -73,20 +73,7 @@ public class OrderServiceImpl implements OrderService {
         return orderMapper.findDetailOrder(id,userId);
     }
 
-    @Override
-    public List<Order> adminFindOrders(Integer status) {
-        return orderMapper.findAdminOrders(status);
-    }
 
-    @Override
-    public Order adminFindOrderById(Long id) {
-        return orderMapper.findOrderById(id);
-    }
-
-    @Override
-    public List<OrderItem> adminFindOrderItems(Long orderId) {
-        return orderItemMapper.selectDetailByOrderId(orderId);
-    }
 
     /**
      * 下单：

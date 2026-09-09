@@ -25,8 +25,4 @@ public interface OrderItemMapper {
             "where oi.order_id=#{orderId} and p.user_id=#{userId} order by oi.id")
     List<OrderItem> selectMyItems(@Param("orderId") Long orderId, @Param("userId") Long userId);
 
-    // 管理员：订单明细（含商品名/图/价）
-    @Select("select order_id, product_id, product_name, product_image, product_price, quantity, total_price " +
-            "from order_item where order_id=#{orderId}")
-    List<OrderItem> selectDetailByOrderId(@Param("orderId") Long orderId);
 }

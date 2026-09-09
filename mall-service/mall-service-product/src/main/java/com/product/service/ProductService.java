@@ -19,8 +19,7 @@ public interface ProductService {
   /** 买家浏览：关键词模糊 + 分类筛选 + 白名单排序 + 分页，返回总数（page 从 1 起） */
   PageBean<Product> findProductPage(String keyword, Long categoryId, String sort, Integer page, Integer size);
 
-  /** 管理员：分页查看所有商品（含下架，带卖家用户名），关键词匹配商品名 */
-  PageBean<Product> pageAllProducts(Integer page, Integer size, String keyword);
+
 }
 
 

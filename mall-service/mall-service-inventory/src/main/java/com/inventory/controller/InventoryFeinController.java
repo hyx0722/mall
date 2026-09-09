@@ -1,6 +1,6 @@
 package com.inventory.controller;
 
-import com.inventory.service.InventoryNumService;
+import com.inventory.service.InventoryFeinService;
 import com.mall.common.web.Auths;
 import com.model.bean.Inventory;
 import com.model.bean.Product;
@@ -22,19 +22,19 @@ import java.util.Map;
 @RestController
 @Slf4j
 @Validated
-public class InventoryNumController {
+public class InventoryFeinController {
 
     @Autowired
-    InventoryNumService inventoryNumService;
+    InventoryFeinService inventoryFeinService;
 
     //为商品初始化库存：product_id 唯一键防重，重复初始化解 DuplicateKey 时显式报错
     @PostMapping("/addNumInventory")
     public Result addNumInventory(@RequestBody @Validated Product product){
-        if(inventoryNumService.findNumInventory(product)!=null){
+        if(inventoryFeinService.findNumInventory(product)!=null){
             return Result.error("该商品已存在库存中，请修改");
         }
         try {
-            inventoryNumService.addNumInventory(product);
+            inventoryFeinService.addNumInventory(product);
         } catch (DuplicateKeyException e) {
             return Result.error("该商品已存在库存中，请修改");
         }
@@ -46,7 +46,7 @@ public class InventoryNumController {
     public Result restock(@RequestParam Long productId, @RequestParam Integer qty) {
         Map<String, Object> map = ThreadLocalUtil.get();
         Long userId = (map == null) ? null : (Long) map.get("id");
-        inventoryNumService.restock(userId, productId, qty);
+        inventoryFeinService.restock(userId, productId, qty);
         return Result.success();
     }
 
@@ -54,6 +54,6 @@ public class InventoryNumController {
     @GetMapping("/admin/listAll")
     public Result<List<Inventory>> listAll(@RequestParam(required = false) Long productId) {
         Auths.requireAdmin();
-        return Result.success(inventoryNumService.listAllInventory(productId));
+        return Result.success(inventoryFeinService.listAllInventory(productId));
     }
 }

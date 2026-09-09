@@ -11,7 +11,7 @@ import org.apache.ibatis.annotations.Update;
 import java.util.List;
 
 @Mapper
-public interface InventoryNumMapper {
+public interface InventoryFeinMapper {
 
     @Select("select * from inventory where product_id=#{id} and user_id=#{userId}")
     Inventory findNumInventory(Product product);

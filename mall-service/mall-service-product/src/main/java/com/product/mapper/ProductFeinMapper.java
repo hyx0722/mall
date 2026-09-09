@@ -1,7 +1,7 @@
 package com.product.mapper;
 
 import com.model.bean.Product;
-import com.product.bean.UpdateProductRequest;
+import com.product.bean.ProductUpdateRequest;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
@@ -10,7 +10,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 @Mapper
-public interface ProductNumMapper {
+public interface ProductFeinMapper {
 
     // 按唯一业务键(user_id,name)查询，用于上架前幂等判断
     @Select("select * from product where user_id=#{userId} and name=#{name}")
@@ -40,13 +40,11 @@ public interface ProductNumMapper {
             "<if test='r.status != null'> ,status=#{r.status}</if>" +
             " where id=#{r.id} and user_id=#{userId}" +
             "</script>")
-    int updateProduct(@Param("r") UpdateProductRequest r, @Param("userId") Long userId);
+    int updateProduct(@Param("r") ProductUpdateRequest r, @Param("userId") Long userId);
 
     // 上/下架（带归属）
     @Update("update product set status=#{status}, updated_time=now() where id=#{id} and user_id=#{userId}")
     int updateProductStatus(@Param("id") Long id, @Param("userId") Long userId, @Param("status") Integer status);
 
-    // 管理员对任意商品上/下架（不带归属）
-    @Update("update product set status=#{status}, updated_time=now() where id=#{id}")
-    int updateStatusById(@Param("id") Long id, @Param("status") Integer status);
+
 }

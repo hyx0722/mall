@@ -56,10 +56,5 @@ public interface OrderService {
     /** 买家查看某订单的物流发货单（归属校验后返回，可为空列表） */
     List<Shipping> listShippings(Long userId, Long orderId);
 
-    // ---------- 管理员：查看所有订单 ----------
-    List<Order> adminFindOrders(Integer status);
 
-    Order adminFindOrderById(Long id);
-
-    List<OrderItem> adminFindOrderItems(Long orderId);
 }
