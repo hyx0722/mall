@@ -20,4 +20,14 @@ public interface InventoryOrderService {
      * 依赖 DB 条件更新 + 流水幂等，重复投递无副作用。
      */
     void releaseForOrder(Long orderId, Map<Long, Integer> productQty);
+
+    /**
+     * 退款到账后回补库存：把该订单占用的库存从 locked_stock 拨回 available_stock，
+     * 并写 change_type=6（退货入库）流水。
+     *
+     * 与 releaseForOrder 的账务动作相同（locked -> available），区别只在流水类型：
+     * change_type 同时是幂等键（inventory_log 唯一键 order_id+product_id+change_type），
+     * 用 6 让「退款回补」与「取消释放」各自幂等、互不干扰。
+     */
+    void returnForOrder(Long orderId, Map<Long, Integer> productQty);
 }

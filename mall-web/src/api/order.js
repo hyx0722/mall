@@ -38,6 +38,33 @@ export function sellerShip(payload) {
   return request.post('/order/seller/ship', payload)
 }
 
+// ---------- 退款（买家申请 / 卖家审核） ----------
+
+// 买家申请退款：待发货/待收货/已完成 -> 退款中（整单全额），等待卖家或管理员审核
+export function applyRefund(orderId, reason) {
+  return request.post('/order/refund/apply', { orderId, reason })
+}
+
+// 买家查看某订单的退款进度（无申请时返回 null）
+export function getRefundDetail(orderId) {
+  return request.get('/order/refund/detail', { params: { orderId } })
+}
+
+// 买家：我的全部退款申请
+export function listMyRefunds() {
+  return request.get('/order/refund/list')
+}
+
+// 卖家：待自己审核的退款申请（仅整单商品都属于本卖家）
+export function listSellerRefunds() {
+  return request.get('/order/seller/refunds')
+}
+
+// 卖家审核退款：approve=false 时 rejectReason 必填
+export function auditSellerRefund(payload) {
+  return request.post('/order/seller/refund/audit', payload)
+}
+
 // 买家确认收货（订单已全部发货时可用）
 export function confirmReceive(id) {
   return request.post('/order/receive', null, { params: { id } })

@@ -26,7 +26,7 @@ server:
 # 各渠道 enabled=false 时不加载/调用 SDK 运行时代码（仅 classpath 存在供编译）。
 payment:
   mock:
-    enabled: false          # 测试钩子开关：演示时置 true，POST /pay/mock/success 模拟支付成功
+    enabled: true           # 测试钩子开关：true 时 POST /pay/mock/success 模拟支付成功，且退款走模拟打款
   alipay:
     enabled: false          # 支付宝渠道
     gateway: https://openapi.alipay.com/gateway.do

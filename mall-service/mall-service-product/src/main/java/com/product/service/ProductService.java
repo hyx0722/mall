@@ -12,7 +12,7 @@ public interface ProductService {
 
   List<Product> findProductByUserName(Integer start,Integer size, String username);
 
-  List<Product> findProductByUserId(Integer start,Integer size);
+  PageBean<Product> findProductByUserId(Integer start,Integer size);
 
   Product findProductById(Long id);
 

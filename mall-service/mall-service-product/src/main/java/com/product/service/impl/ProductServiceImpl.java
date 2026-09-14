@@ -34,13 +34,20 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    public List<Product> findProductByUserId(Integer start, Integer size) {
+    public PageBean<Product> findProductByUserId(Integer start, Integer size) {
         Map<String,Object> map = ThreadLocalUtil.get();
         if (map == null || map.get("id") == null) {
             throw new BusinessException("请先登录");
         }
         Long userId = (Long) map.get("id");
-        return  productMapper.findProductByUserId(toOffset(start, size), normSize(size), userId);
+        int s = normSize(size);
+        // 带 total 返回，前端才能算出总页数并据此禁用「下一页」（否则末页点下一页只会得到空列表）
+        long total = productMapper.countProductByUserId(userId);
+        if (total == 0L) {
+            return new PageBean<>(0L, List.of());
+        }
+        List<Product> items = productMapper.findProductByUserId(toOffset(start, size), s, userId);
+        return new PageBean<>(total, items);
     }
 
     @Override

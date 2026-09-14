@@ -23,6 +23,7 @@ function onUserCommand(cmd) {
       <el-menu :default-active="route.path" router class="menu">
         <el-menu-item index="/users">用户管理</el-menu-item>
         <el-menu-item index="/orders">订单管理</el-menu-item>
+        <el-menu-item index="/refunds">退款审核</el-menu-item>
         <el-menu-item index="/products">商品管理</el-menu-item>
         <el-menu-item index="/inventory">库存查询</el-menu-item>
         <el-menu-item index="/category">分类管理</el-menu-item>

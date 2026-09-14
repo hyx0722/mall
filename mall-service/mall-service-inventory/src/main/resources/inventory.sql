@@ -42,15 +42,3 @@ CREATE TABLE `inventory_log` (
 ALTER TABLE `inventory_log`
     ADD UNIQUE KEY `uk_order_product_type` (`order_id`,`product_id`,`change_type`);
 
-CREATE TABLE `undo_log` (
-                            `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-                            `branch_id` bigint NOT NULL COMMENT '分支事务ID',
-                            `xid` varchar(100) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '全局事务唯一标识',
-                            `context` varchar(128) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '上下文',
-                            `rollback_info` longblob NOT NULL COMMENT '回滚信息',
-                            `log_status` int NOT NULL COMMENT '状态，0正常，1全局已完成（防悬挂）',
-                            `log_created` datetime NOT NULL COMMENT '创建时间',
-                            `log_modified` datetime NOT NULL COMMENT '修改时间',
-                            PRIMARY KEY (`id`),
-                            UNIQUE KEY `ux_undo_log` (`xid`,`branch_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COMMENT='AT模式回滚日志表';

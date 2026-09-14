@@ -47,6 +47,11 @@ public class OrderRabbitConfig {
     public static final String RK_DEDUCT_FAILED = RabbitTopology.RK_DEDUCT_FAILED;
     public static final String RK_PAY_SUCCESS = RabbitTopology.RK_PAY_SUCCESS;
 
+    public static final String RK_REFUND_REQUEST = RabbitTopology.RK_REFUND_REQUEST;
+    public static final String RK_PAY_REFUND_SUCCESS = RabbitTopology.RK_PAY_REFUND_SUCCESS;
+    public static final String RK_ORDER_REFUNDED = RabbitTopology.RK_ORDER_REFUNDED;
+    public static final String Q_ORDER_REFUND_SUCCESS = RabbitTopology.Q_ORDER_REFUND_SUCCESS;
+
     public static final String DELAY_EXCHANGE = RabbitTopology.DELAY_EXCHANGE;
     public static final String RK_DELAY_ORDER_TIMEOUT = RabbitTopology.RK_DELAY_ORDER_TIMEOUT;
     public static final String Q_DELAY_ORDER_TIMEOUT = RabbitTopology.Q_DELAY_ORDER_TIMEOUT;
@@ -103,6 +108,19 @@ public class OrderRabbitConfig {
     @Bean
     public Binding bindPaySuccess() {
         return BindingBuilder.bind(paySuccessQueue()).to(orderExchange()).with(RK_PAY_SUCCESS);
+    }
+
+    // 退款到账回执：payment 打款成功后 order 侧把订单置 6已退款。
+    // 注意 order 只声明入站队列；refund.request（order 发布、payment 消费）与
+    // order.refunded（order 发布、inventory 消费）的队列由各自消费端声明。
+    @Bean
+    public Queue refundSuccessQueue() {
+        return withDlqArgs(Q_ORDER_REFUND_SUCCESS);
+    }
+
+    @Bean
+    public Binding bindRefundSuccess() {
+        return BindingBuilder.bind(refundSuccessQueue()).to(orderExchange()).with(RK_PAY_REFUND_SUCCESS);
     }
 
     // ---------- 支付超时延迟消息 ----------

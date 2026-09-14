@@ -21,6 +21,19 @@ export function orderStatusTag(status) {
   return s || { text: String(status ?? '-'), type: 'info' }
 }
 
+// 退款申请审核状态（refundStatus），对应 order_refund.refund_status
+export const REFUND_STATUS = {
+  0: { text: '待审核', type: 'warning' },
+  1: { text: '退款中', type: 'primary' },
+  2: { text: '已退款', type: 'info' },
+  3: { text: '已驳回', type: 'danger' },
+}
+
+export function refundStatusTag(status) {
+  const s = REFUND_STATUS[Number(status)]
+  return s || { text: String(status ?? '-'), type: 'info' }
+}
+
 // 支付方式：1=支付宝 2=微信
 export const PAY_METHOD = {
   1: { text: '支付宝', type: 'success' },

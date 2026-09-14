@@ -19,3 +19,17 @@ export function orderStatusTag(status) {
   const s = ORDER_STATUS[Number(status)]
   return s || { text: String(status ?? '-'), type: 'info' }
 }
+
+// 退款审核状态（refundStatus），语义与后端 RefundAuditStatus 一致：
+// 0待审核 1退款中（已通过、打款中） 2已退款 3已驳回
+export const REFUND_STATUS = {
+  0: { text: '待审核', type: 'warning' },
+  1: { text: '退款中', type: 'primary' },
+  2: { text: '已退款', type: 'success' },
+  3: { text: '已驳回', type: 'danger' },
+}
+
+export function refundStatusTag(status) {
+  const s = REFUND_STATUS[Number(status)]
+  return s || { text: String(status ?? '-'), type: 'info' }
+}

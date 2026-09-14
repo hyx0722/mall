@@ -3,6 +3,7 @@ package com.order.service.impl;
 import com.model.bean.Order;
 import com.model.bean.Product;
 import com.model.bean.Result;
+import com.model.enums.OrderStatus;
 import com.model.event.InventoryResultEvent;
 import com.model.event.OrderCreatedEvent;
 import com.model.event.OrderTimeoutEvent;
@@ -127,7 +128,7 @@ public class OrderServiceImpl implements OrderService {
         order.setAddressId(request.getAddressId());
         order.setTotalAmount(totalAmount);
         order.setDiscountAmount(BigDecimal.ZERO);
-        order.setOrderStatus(0); // 0-待付款
+        order.setOrderStatus(OrderStatus.WAIT_PAY.code());
         order.setRemark(request.getRemark());
         orderMapper.insertOrder(order); // useGeneratedKeys 回填 id
 
@@ -236,8 +237,7 @@ public class OrderServiceImpl implements OrderService {
             vo.setItems(orderItemMapper.selectMyItems(order.getId(), userId));
             // 混单（含其它卖家的商品）不可由本商家整单取消
             boolean hasForeign = orderMapper.countForeignItemLines(order.getId(), userId) > 0;
-            vo.setCancellable(order.getOrderStatus() != null
-                    && order.getOrderStatus() == 0 && !hasForeign);
+            vo.setCancellable(OrderStatus.is(order.getOrderStatus(), OrderStatus.WAIT_PAY) && !hasForeign);
             // 本商家的发货单（null=未发货，用于卖家端判断是否显示「发货」操作）
             vo.setShipInfo(shippingMapper.selectByOrderAndSeller(order.getId(), userId));
             result.add(vo);
@@ -298,8 +298,8 @@ public class OrderServiceImpl implements OrderService {
             log.info("[order] 卖家 {} 对订单 {} 已发过货，跳过重复发货", sellerId, orderId);
             return;
         }
-        // 4) 仅整单仍待发货可发货（拦截未付款/已取消/已发货待收货等）
-        if (order.getOrderStatus() == null || order.getOrderStatus() != 1) {
+        // 4) 仅整单仍待发货可发货（拦截未付款/已取消/已发货待收货/退款中等）
+        if (!OrderStatus.is(order.getOrderStatus(), OrderStatus.WAIT_SHIP)) {
             throw new BusinessException("订单当前状态不可发货");
         }
         // 5) 收货快照懒兜底：若支付时未冻结（如历史单/地址当时失效），发货前尽力补一次
@@ -339,11 +339,11 @@ public class OrderServiceImpl implements OrderService {
             // 统一文案，避免泄露他人订单状态
             throw new BusinessException("订单不存在或当前状态不可收货");
         }
-        if (order.getOrderStatus() == 3) {
+        if (OrderStatus.is(order.getOrderStatus(), OrderStatus.COMPLETED)) {
             log.info("[order] 订单 {} 已确认收货，跳过重复确认", orderId);
             return; // 已完成的幂等返回
         }
-        if (order.getOrderStatus() != 2) {
+        if (!OrderStatus.is(order.getOrderStatus(), OrderStatus.WAIT_RECEIVE)) {
             throw new BusinessException("订单不存在或当前状态不可收货");
         }
         int affected = orderMapper.receiveOrder(orderId, userId);

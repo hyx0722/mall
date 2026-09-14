@@ -14,7 +14,8 @@ const ACTIVE_MAP = {
   home: '/',
   'product-detail': '/',
   store: '/',
-  checkout: '/',
+  cart: '/cart',
+  checkout: '/cart',
   orders: '/orders',
   'order-detail': '/orders',
   pay: '/orders',
@@ -52,8 +53,9 @@ function onUserCommand(cmd) {
         @select="nav"
       >
         <el-menu-item index="/">首页</el-menu-item>
+        <el-menu-item index="/cart">购物车</el-menu-item>
         <el-menu-item index="/orders">我的订单</el-menu-item>
-        <el-menu-item index="/seller">卖家中心</el-menu-item>
+        <el-menu-item index="/seller">我的商品</el-menu-item>
       </el-menu>
       <div class="user-box">
         <template v-if="username">

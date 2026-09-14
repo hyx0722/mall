@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -19,7 +19,14 @@ const loading = ref(true)
 const list = ref([])
 const page = ref(1)
 const size = ref(10)
+// 自己发布的商品总数（含已下架），由接口返回，用于计算总页数
+const total = ref(0)
 const categories = ref([])
+
+// 总页数至少为 1，避免 total=0 时出现「第 1 / 0 页」
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / size.value)))
+// 下一页还有商品才可点：靠 total 精确判断，而不是「本页是否满员」的猜测
+const hasNext = computed(() => page.value < totalPages.value)
 
 const detailVisible = ref(false)
 const detail = ref(null)
@@ -66,11 +73,19 @@ async function loadCategories() {
 async function load() {
   loading.value = true
   try {
-    list.value = (await findMyProducts(page.value, size.value)) || []
+    const res = await findMyProducts(page.value, size.value)
+    list.value = res?.items || []
+    total.value = Number(res?.total || 0)
   } catch {
     list.value = []
+    total.value = 0
   } finally {
     loading.value = false
+  }
+  // 数据变少导致当前页越界时回退到最后一页（total=0 时 totalPages=1，不会递归）
+  if (page.value > totalPages.value) {
+    page.value = totalPages.value
+    return load()
   }
 }
 
@@ -188,6 +203,8 @@ function prevPage() {
 }
 
 function nextPage() {
+  // 双保险：按钮已 disabled，方法内再拦一次，避免别的入口误调
+  if (!hasNext.value) return
   page.value += 1
   load()
 }
@@ -208,7 +225,7 @@ onMounted(async () => {
 <template>
   <div class="page">
     <div class="head">
-      <h3 class="title">卖家中心 · 我的商品</h3>
+      <h3 class="title">我的商品</h3>
       <div class="head-actions">
         <el-button @click="router.push('/seller/orders')">查看商品订单</el-button>
         <el-button type="primary" @click="openAdd">发布商品</el-button>
@@ -251,10 +268,10 @@ onMounted(async () => {
       <el-empty v-if="!loading && !list.length" description="还没有发布过商品，点击右上角「发布商品」开始" />
     </el-card>
 
-    <div v-if="list.length" class="pager">
+    <div v-if="total > 0" class="pager">
       <el-button :disabled="page <= 1" @click="prevPage">上一页</el-button>
-      <span class="pno">第 {{ page }} 页</span>
-      <el-button @click="nextPage">下一页</el-button>
+      <span class="pno">第 {{ page }} / {{ totalPages }} 页 · 共 {{ total }} 件</span>
+      <el-button :disabled="!hasNext" @click="nextPage">下一页</el-button>
     </div>
 
     <!-- 发布 / 编辑 -->

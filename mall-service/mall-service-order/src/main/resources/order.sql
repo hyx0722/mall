@@ -62,18 +62,6 @@ CREATE TABLE `shipping` (
                             UNIQUE KEY `uk_order_seller` (`order_id`,`seller_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='发货单表';
 
-CREATE TABLE `undo_log` (
-                            `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-                            `branch_id` bigint NOT NULL COMMENT '分支事务ID',
-                            `xid` varchar(100) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '全局事务唯一标识',
-                            `context` varchar(128) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '上下文',
-                            `rollback_info` longblob NOT NULL COMMENT '回滚信息',
-                            `log_status` int NOT NULL COMMENT '状态，0正常，1全局已完成（防悬挂）',
-                            `log_created` datetime NOT NULL COMMENT '创建时间',
-                            `log_modified` datetime NOT NULL COMMENT '修改时间',
-                            PRIMARY KEY (`id`),
-                            UNIQUE KEY `ux_undo_log` (`xid`,`branch_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COMMENT='AT模式回滚日志表';
 
 -- 4. 事务性发件箱（outbox）：order.created / order.canceled 与业务同事务写入，relay 定时投递。
 --    已按本模块建库的存量环境：单独执行下面 CREATE TABLE 即可。
@@ -90,3 +78,29 @@ CREATE TABLE `outbox` (
                            PRIMARY KEY (`id`),
                            KEY `idx_status_id` (`status`,`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='事务性发件箱';
+
+-- 5. 退款申请单（order_refund）：买家申请 -> 卖家/管理员审核 -> payment 打款 -> 订单置已退款。
+--    已按本模块建库的存量环境：单独执行下面 CREATE TABLE 即可。
+--    审核状态只存在于本表；orders.order_status 只表达 5退款中 / 6已退款 两个宏观态，
+--    「待审核」与「审核通过打款中」的区别由本表 refund_status 承担。
+CREATE TABLE `order_refund` (
+                                `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '退款申请ID',
+                                `refund_no`       VARCHAR(32)     NOT NULL                COMMENT '退款单号（业务唯一，与 payment.refund.refund_no 对齐）',
+                                `order_id`        BIGINT UNSIGNED NOT NULL                COMMENT '订单ID（orders.id）',
+                                `order_no`        VARCHAR(32)     NOT NULL                COMMENT '订单编号（冗余，便于按单号排查）',
+                                `user_id`         BIGINT UNSIGNED NOT NULL                COMMENT '申请买家ID',
+                                `refund_amount`   DECIMAL(10,2)   NOT NULL DEFAULT 0.00   COMMENT '退款金额（本仓为整单全额退款）',
+                                `refund_status`   TINYINT         NOT NULL DEFAULT 0      COMMENT '审核状态：0-待审核，1-审核通过(打款中)，2-已退款，3-已驳回',
+                                `refund_reason`   VARCHAR(255)    DEFAULT NULL            COMMENT '买家退款原因',
+                                `reject_reason`   VARCHAR(255)    DEFAULT NULL            COMMENT '审核驳回原因',
+                                `audit_user_id`   BIGINT UNSIGNED DEFAULT NULL            COMMENT '审核人ID（卖家或管理员）',
+                                `audit_time`      DATETIME        DEFAULT NULL            COMMENT '审核时间',
+                                `refund_time`     DATETIME        DEFAULT NULL            COMMENT '退款到账时间',
+                                `created_time`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '申请时间',
+                                `updated_time`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                                PRIMARY KEY (`id`),
+                                UNIQUE KEY `uk_refund_no` (`refund_no`),
+                                KEY `idx_order_id` (`order_id`),
+                                KEY `idx_user_id` (`user_id`),
+                                KEY `idx_refund_status` (`refund_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='退款申请单';

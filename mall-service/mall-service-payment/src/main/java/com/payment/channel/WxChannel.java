@@ -11,6 +11,7 @@ import com.wechat.pay.java.service.payments.nativepay.model.PrepayResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Map;
 
@@ -82,6 +83,59 @@ public class WxChannel implements PayChannel {
         } catch (Exception e) {
             log.error("[wxpay] 下单失败 payNo={}", payOrder.getPayNo(), e);
             throw new IllegalStateException("微信下单失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 微信退款（APIv3 RefundService.create）。
+     * out_refund_no 用退款单号，微信据此保证幂等，重复提交不会重复出款。
+     *
+     * 微信退款是异步的：create 返回 PROCESSING 表示已受理、稍后到账。
+     * 本仓把 SUCCESS 与 PROCESSING 都视为退款成立（演示不接退款结果通知），
+     * 属于已知边界——真实系统应等退款结果通知再置终态。
+     */
+    @Override
+    public RefundResult refund(PayOrder payOrder, String refundNo, BigDecimal amount, String reason) {
+        if (!props.isEnabled()) {
+            throw new IllegalStateException("微信支付渠道未启用（占位配置），无法退款 refundNo=" + refundNo);
+        }
+        try {
+            RSAAutoCertificateConfig config = new RSAAutoCertificateConfig.Builder()
+                    .merchantId(props.getMchId())
+                    .privateKeyFromPath(props.getPrivateKeyPath())
+                    .merchantSerialNumber(props.getMerchantSerialNo())
+                    .apiV3Key(props.getApiV3Key())
+                    .build();
+            com.wechat.pay.java.service.refund.RefundService service =
+                    new com.wechat.pay.java.service.refund.RefundService.Builder().config(config).build();
+
+            com.wechat.pay.java.service.refund.model.CreateRequest request =
+                    new com.wechat.pay.java.service.refund.model.CreateRequest();
+            request.setOutTradeNo(payOrder.getPayNo());
+            request.setOutRefundNo(refundNo);
+            if (reason != null && !reason.isBlank()) {
+                request.setReason(reason);
+            }
+            com.wechat.pay.java.service.refund.model.AmountReq reqAmount =
+                    new com.wechat.pay.java.service.refund.model.AmountReq();
+            long cents = amount.multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).longValue();
+            reqAmount.setRefund(cents);
+            reqAmount.setTotal(cents);
+            reqAmount.setCurrency("CNY");
+            request.setAmount(reqAmount);
+
+            com.wechat.pay.java.service.refund.model.Refund refund = service.create(request);
+            com.wechat.pay.java.service.refund.model.Status status = refund.getStatus();
+            if (status == com.wechat.pay.java.service.refund.model.Status.SUCCESS
+                    || status == com.wechat.pay.java.service.refund.model.Status.PROCESSING) {
+                log.info("[wxpay] 退款已受理 refundNo={} refundId={} status={}", refundNo, refund.getRefundId(), status);
+                return RefundResult.ok(refund.getRefundId());
+            }
+            log.warn("[wxpay] 退款未受理 refundNo={} status={}", refundNo, status);
+            return RefundResult.fail("微信退款未受理：" + status);
+        } catch (Exception e) {
+            log.error("[wxpay] 退款异常 refundNo={}", refundNo, e);
+            throw new IllegalStateException("微信退款异常：" + e.getMessage(), e);
         }
     }
 

@@ -11,6 +11,15 @@ import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
+/**
+ * 订单 DAO。
+ *
+ * 注解里的 order_status 字面量对应 {@link com.model.enums.OrderStatus}
+ * （0待付款 / 1待发货 / 2待收货 / 3已完成 / 4已取消 / 5退款中 / 6已退款），
+ * Java 侧判断一律走枚举，SQL 侧因注解是编译期常量只能写字面量。
+ * 所有状态推进都用「条件 UPDATE + 受影响行数」防重：WHERE 带上当前状态，
+ * 并发下只有一个事务能翻转成功，另一个拿到 0 行。
+ */
 @Mapper
 public interface OrderMapper extends BaseMapper<Order> {
 
@@ -100,6 +109,33 @@ public interface OrderMapper extends BaseMapper<Order> {
     // 手动取消（商家，归属校验已在 service 完成）：仅待付款，返回受影响行数
     @Update("update orders set order_status=4, cancel_time=now() where id=#{id} and order_status=0")
     int cancelUnpaidById(@Param("id") Long id);
+
+    // ---------- 退款链路（order_status 5退款中 / 6已退款） ----------
+
+    /**
+     * 买家申请退款：待发货/待收货/已完成 -> 退款中（含归属条件 id AND user_id）。
+     * WHERE 里的 IN (1,2,3) 同时承担三件事：归属越权拦截、可退状态校验、
+     * 并发重复申请防重（两次申请只有一个能翻转成功，另一个 0 行）。
+     */
+    @Update("update orders set order_status=5 where id=#{id} and user_id=#{userId} and order_status in (1,2,3)")
+    int markRefunding(@Param("id") Long id, @Param("userId") Long userId);
+
+    /**
+     * 审核驳回：退款中 -> 回到申请前的状态。
+     *
+     * 申请退款不覆盖 shipping_status，而 shipping_status（0未发货/1已发货/2已收货）
+     * 与可申请退款的三态一一对应，故直接据它反推，无需额外记录「申请前状态」：
+     * 未发货 -> 1待发货；已发货 -> 2待收货；已收货 -> 3已完成。
+     * shipping_time / complete_time 保持原值不清空。
+     */
+    @Update("update orders set order_status = case shipping_status " +
+            "when 1 then 2 when 2 then 3 else 1 end " +
+            "where id=#{id} and order_status=5")
+    int revertRefunding(@Param("id") Long id);
+
+    /** 退款到账：退款中 -> 已退款（条件更新，渠道重复回调天然幂等） */
+    @Update("update orders set order_status=6 where id=#{id} and order_status=5")
+    int markRefunded(@Param("id") Long id);
 
     // 商家：该订单里属于我（product.user_id=me）的明细行数
     @Select("select count(*) from order_item oi " +

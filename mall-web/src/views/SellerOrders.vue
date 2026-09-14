@@ -2,12 +2,21 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listSellerOrders, sellerCancelOrder, sellerShip } from '../api/order'
+import {
+  listSellerOrders,
+  sellerCancelOrder,
+  sellerShip,
+  listSellerRefunds,
+  auditSellerRefund,
+} from '../api/order'
 import { money, orderStatusTag } from '../utils/format'
 
 const router = useRouter()
 const loading = ref(true)
 const orders = ref([])
+// 待本店审核的退款申请（仅整单商品都属于本店；混单归管理员审）
+const refunds = ref([])
+const refundLoading = ref(true)
 
 // 发货弹窗
 const shipVisible = ref(false)
@@ -47,12 +56,68 @@ const itemsText = (items) =>
 
 async function load() {
   loading.value = true
+  refundLoading.value = true
   try {
-    orders.value = (await listSellerOrders()) || []
+    const [orderList, refundList] = await Promise.all([
+      listSellerOrders(),
+      listSellerRefunds().catch(() => []),
+    ])
+    orders.value = orderList || []
+    refunds.value = refundList || []
   } catch {
     orders.value = []
+    refunds.value = []
   } finally {
     loading.value = false
+    refundLoading.value = false
+  }
+}
+
+// 同意退款：钱由支付服务原路退回，订单随后变为「已退款」并回补库存
+async function approveRefund(row) {
+  try {
+    await ElMessageBox.confirm(
+      `同意退款 ¥${money(row.refundAmount)}？退款将原路退回买家账户，库存回补。`,
+      '同意退款',
+      { type: 'warning', confirmButtonText: '同意退款', cancelButtonText: '再想想' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await auditSellerRefund({ refundNo: row.refundNo, approve: true })
+    ElMessage.success('已同意退款，正在原路退回')
+    load()
+  } catch {
+    // 拦截器已提示
+  }
+}
+
+// 驳回退款：必须填写原因（后端也会校验），订单回退到申请前的状态
+async function rejectRefund(row) {
+  let reason = ''
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `驳回买家对订单「${row.orderNo}」的退款申请，请填写原因：`,
+      '驳回退款',
+      {
+        confirmButtonText: '确认驳回',
+        cancelButtonText: '取消',
+        inputType: 'textarea',
+        inputPlaceholder: '必填，将展示给买家',
+        inputValidator: (v) => (v && v.trim() ? true : '驳回原因不能为空'),
+      },
+    )
+    reason = (value || '').trim()
+  } catch {
+    return
+  }
+  try {
+    await auditSellerRefund({ refundNo: row.refundNo, approve: false, rejectReason: reason })
+    ElMessage.success('已驳回退款申请')
+    load()
+  } catch {
+    // 拦截器已提示
   }
 }
 
@@ -85,9 +150,44 @@ onMounted(load)
 <template>
   <div class="page">
     <div class="head">
-      <h3 class="title">卖家中心 · 商品订单</h3>
+      <h3 class="title">商品订单</h3>
       <el-button @click="router.push('/seller')">← 返回我的商品</el-button>
     </div>
+
+    <el-card v-loading="refundLoading" shadow="never" class="refund-card">
+      <template #header>
+        <div class="card-hdr">
+          <span class="ct">待处理退款</span>
+          <el-tag v-if="refunds.length" type="warning" size="small">{{ refunds.length }} 笔待审核</el-tag>
+          <span v-else class="ct-hint">暂无待审核的退款申请</span>
+        </div>
+      </template>
+      <el-table v-if="refunds.length" :data="refunds" style="width: 100%">
+        <el-table-column prop="refundNo" label="退款单号" min-width="190" show-overflow-tooltip />
+        <el-table-column prop="orderNo" label="订单号" min-width="190" show-overflow-tooltip />
+        <el-table-column label="买家" width="130">
+          <template #default="{ row }">{{ row.buyerName || ('用户#' + row.userId) }}</template>
+        </el-table-column>
+        <el-table-column label="退款金额" width="120">
+          <template #default="{ row }">¥{{ money(row.refundAmount) }}</template>
+        </el-table-column>
+        <el-table-column label="退款原因" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.refundReason || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="申请时间" width="170">
+          <template #default="{ row }">{{ fmtTime(row.createdTime) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="150" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="approveRefund(row)">同意退款</el-button>
+            <el-button link type="danger" @click="rejectRefund(row)">驳回</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-else class="refund-empty">
+        买家申请退款后会出现在这里；含其他卖家商品的订单由管理员审核。
+      </div>
+    </el-card>
 
     <el-card v-loading="loading" shadow="never">
       <el-table :data="orders" style="width: 100%">
@@ -193,6 +293,26 @@ onMounted(load)
   white-space: pre-line;
   color: #303133;
   line-height: 1.6;
+}
+.refund-card {
+  margin-bottom: 16px;
+}
+.card-hdr {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ct {
+  font-weight: 600;
+}
+.ct-hint {
+  color: #909399;
+  font-size: 13px;
+}
+.refund-empty {
+  color: #909399;
+  font-size: 13px;
+  padding: 8px 0;
 }
 .addr {
   color: #909399;

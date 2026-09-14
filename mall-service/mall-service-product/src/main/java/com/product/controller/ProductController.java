@@ -44,14 +44,14 @@ public class ProductController {
         return Result.success(products);
     }
 
-    //查看自己发布的商品
+    //查看自己发布的商品（商家后台，含已下架）；start 为页码（从 1 起），返回 { total, items }
     @GetMapping("/findProductByUserId")
-    public Result<List<Product>> findProductByUserId(
+    public Result<PageBean<Product>> findProductByUserId(
             @RequestParam Integer start,
             @RequestParam Integer size
     ){
-        List<Product> products=productService.findProductByUserId(start,size);
-        return Result.success(products);
+        PageBean<Product> pageBean = productService.findProductByUserId(start, size);
+        return Result.success(pageBean);
     }
 
     //按 id 查商品（供 order 服务下单时同步拉取价格/名称快照）

@@ -31,7 +31,8 @@ export function findProductsByUsername(start, size, username) {
   })
 }
 
-// 老接口：查看自己发布的商品（商家后台，含已下架，返回字段较少）
+// 查看自己发布的商品（商家后台，含已下架）→ { total, items }
+// start 为页码（从 1 起）；返回 total 才能算出总页数、据此禁用「下一页」
 export function findMyProducts(start, size) {
   return request.get('/product/findProductByUserId', { params: { start, size } })
 }

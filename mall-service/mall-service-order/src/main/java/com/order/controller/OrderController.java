@@ -5,9 +5,13 @@ import com.model.bean.Order;
 import com.model.bean.Result;
 import com.order.bean.CreateOrderRequest;
 import com.order.bean.OrderItem;
+import com.order.bean.OrderRefund;
+import com.order.bean.RefundApplyRequest;
+import com.order.bean.RefundAuditRequest;
 import com.order.bean.SellerOrderVO;
 import com.order.bean.ShipRequest;
 import com.order.bean.Shipping;
+import com.order.service.OrderRefundService;
 import com.order.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
@@ -24,6 +28,8 @@ import java.util.List;
 public class OrderController {
     @Autowired
     OrderService orderService;
+    @Autowired
+    OrderRefundService orderRefundService;
     //查看自己所有的订单
     @GetMapping("findAllOrder")
     public Result<List<Order>> findAllOrder(){
@@ -93,6 +99,46 @@ public class OrderController {
     public Result<List<Shipping>> shippings(@RequestParam Long orderId) {
         Auths.requireLogin();
         return Result.success(orderService.listShippings(Auths.currentUserId(), orderId));
+    }
+
+    // ---------- 退款（买家申请 / 卖家审核；管理员审核在 OrderAdminController） ----------
+
+    // 买家申请退款：待发货/待收货/已完成 -> 退款中（整单全额），等待卖家或管理员审核
+    @PostMapping("/refund/apply")
+    public Result<OrderRefund> refundApply(@RequestBody @Validated RefundApplyRequest request) {
+        Auths.requireLogin();
+        return Result.success(orderRefundService.apply(Auths.currentUserId(),
+                request.getOrderId(), request.getReason()));
+    }
+
+    // 买家查看某订单的退款进度（归属校验；无申请时 data 为 null）
+    @GetMapping("/refund/detail")
+    public Result<OrderRefund> refundDetail(@RequestParam Long orderId) {
+        Auths.requireLogin();
+        return Result.success(orderRefundService.detailByOrderId(Auths.currentUserId(), orderId));
+    }
+
+    // 买家：我的全部退款申请
+    @GetMapping("/refund/list")
+    public Result<List<OrderRefund>> refundList() {
+        Auths.requireLogin();
+        return Result.success(orderRefundService.myRefunds(Auths.currentUserId()));
+    }
+
+    // 卖家：待自己审核的退款申请（仅整单商品都属于本卖家，混单归管理员）
+    @GetMapping("/seller/refunds")
+    public Result<List<OrderRefund>> sellerRefunds() {
+        Auths.requireLogin();
+        return Result.success(orderRefundService.sellerPending(Auths.currentUserId()));
+    }
+
+    // 卖家审核退款申请
+    @PostMapping("/seller/refund/audit")
+    public Result sellerRefundAudit(@RequestBody @Validated RefundAuditRequest request) {
+        Auths.requireLogin();
+        orderRefundService.audit(Auths.currentUserId(), false, request.getRefundNo(),
+                request.getApprove(), request.getRejectReason());
+        return Result.success();
     }
 
 }

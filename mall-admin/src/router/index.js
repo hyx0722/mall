@@ -17,6 +17,12 @@ const routes = [
     meta: { requiresAdmin: true },
   },
   {
+    path: '/refunds',
+    name: 'refunds',
+    component: () => import('../views/RefundManage.vue'),
+    meta: { requiresAdmin: true },
+  },
+  {
     path: '/products',
     name: 'products',
     component: () => import('../views/ProductManage.vue'),

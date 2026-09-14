@@ -34,6 +34,10 @@ public class PaymentRabbitConfig {
     public static final String RK_ORDER_CANCELED = RabbitTopology.RK_ORDER_CANCELED;
     public static final String Q_ORDER_CANCELED = RabbitTopology.Q_PAY_ORDER_CANCELED;
 
+    public static final String RK_REFUND_REQUEST = RabbitTopology.RK_REFUND_REQUEST;
+    public static final String RK_PAY_REFUND_SUCCESS = RabbitTopology.RK_PAY_REFUND_SUCCESS;
+    public static final String Q_REFUND_REQUEST = RabbitTopology.Q_PAY_REFUND_REQUEST;
+
     public static final String DLX_EXCHANGE = RabbitTopology.DLX_EXCHANGE;
     public static final String Q_PAY_DLQ = RabbitTopology.Q_PAY_DLQ;
 
@@ -57,6 +61,17 @@ public class PaymentRabbitConfig {
     @Bean
     public Binding bindOrderCanceled() {
         return BindingBuilder.bind(orderCanceledQueue()).to(orderExchange()).with(RK_ORDER_CANCELED);
+    }
+
+    // 退款申请/审核指令：order 发布 -> payment 消费（单队列，按事件 action 分派建单/打款/关闭）
+    @Bean
+    public Queue refundRequestQueue() {
+        return withDlqArgs(Q_REFUND_REQUEST);
+    }
+
+    @Bean
+    public Binding bindRefundRequest() {
+        return BindingBuilder.bind(refundRequestQueue()).to(orderExchange()).with(RK_REFUND_REQUEST);
     }
 
     // ---------- 死信交换机 / 死信队列 ----------

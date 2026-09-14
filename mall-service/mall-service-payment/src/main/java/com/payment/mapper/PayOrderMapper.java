@@ -34,4 +34,15 @@ public interface PayOrderMapper extends BaseMapper<PayOrder> {
     @Update("update pay_order set payment_status=3, updated_time=now() " +
             "where order_id=#{orderId} and payment_status=0")
     int markClosedByOrderId(@Param("orderId") Long orderId);
+
+    // ---------- 退款链路 ----------
+
+    /** 该订单支付成功的支付单（退款打款对象，提供 out_trade_no 与实付金额）；未支付返回 null */
+    @Select("select * from pay_order where order_id=#{orderId} and payment_status=1 order by id desc limit 1")
+    PayOrder selectPaidByOrderId(@Param("orderId") Long orderId);
+
+    /** 退款到账：支付成功 -> 已退款（条件更新，防重复推进） */
+    @Update("update pay_order set payment_status=2, updated_time=now() " +
+            "where id=#{id} and payment_status=1")
+    int markRefunded(@Param("id") Long id);
 }

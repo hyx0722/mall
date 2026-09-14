@@ -5,9 +5,10 @@ import com.order.bean.OrderItem;
 import com.order.mapper.OrderAdminMapper;
 import com.order.service.OrderAdminService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
 import java.util.List;
-
+@Service
 public class OrderAdminServiceImpl implements OrderAdminService {
 
     @Autowired

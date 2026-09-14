@@ -11,6 +11,9 @@ package com.mall.common.rabbit;
  *   order 发布 order.canceled -> inventory 释放锁定 / payment 关闭未付支付单（支付超时自动取消）
  *   inventory 回执 inventory.deducted / inventory.deduct_failed -> order 消费
  *   payment 发布 pay.success -> order 消费（支付成功：待付款 -> 待发货）
+ *   order 发布 refund.request -> payment 消费（申请建退款单 / 审核通过打款 / 审核驳回置失败）
+ *   payment 发布 pay.refund.success -> order 消费（退款到账：退款中 -> 已退款）
+ *   order 发布 order.refunded -> inventory 消费（退货入库，回补可用库存）
  *
  * 支付超时走延迟消息：mall.order.delay.exchange 收到带 per-message TTL 的超时标记，
  * 进入无消费者持有队列 q.delay.order.timeout，TTL 到点死信回主交换机 order.timeout -> q.order.timeout。
@@ -30,6 +33,15 @@ public final class RabbitTopology {
     public static final String RK_DEDUCTED = "inventory.deducted";
     public static final String RK_DEDUCT_FAILED = "inventory.deduct_failed";
     public static final String RK_PAY_SUCCESS = "pay.success";
+
+    // ---------- 退款链路 ----------
+
+    /** order 发布：退款申请/审核指令（事件体带 action=APPLY/APPROVE/REJECT） */
+    public static final String RK_REFUND_REQUEST = "refund.request";
+    /** payment 发布：退款到账（order 侧把订单置已退款） */
+    public static final String RK_PAY_REFUND_SUCCESS = "pay.refund.success";
+    /** order 发布：订单已退款（inventory 侧回补库存，写 change_type=6） */
+    public static final String RK_ORDER_REFUNDED = "order.refunded";
 
     // ---------- 支付超时延迟消息（DLX + per-message TTL） ----------
 
@@ -64,4 +76,11 @@ public final class RabbitTopology {
     public static final String Q_DEDUCT_FAILED = "q.order.deduct.failed";
     /** 订单侧：支付成功回执 */
     public static final String Q_PAY_SUCCESS = "q.order.pay.success";
+
+    /** 支付侧：退款申请/审核指令（单队列，按事件 action 分派） */
+    public static final String Q_PAY_REFUND_REQUEST = "q.pay.refund.request";
+    /** 订单侧：退款到账回执 */
+    public static final String Q_ORDER_REFUND_SUCCESS = "q.order.refund.success";
+    /** 库存侧：订单已退款（回补库存） */
+    public static final String Q_INVENTORY_ORDER_REFUNDED = "q.inventory.order.refunded";
 }

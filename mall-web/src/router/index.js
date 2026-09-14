@@ -13,7 +13,8 @@ const routes = [
   // 买家浏览
   { path: '/product/:id', name: 'product-detail', component: () => import('../views/ProductDetail.vue'), meta: { requiresAuth: true } },
   { path: '/store/:username', name: 'store', component: () => import('../views/StoreProducts.vue'), meta: { requiresAuth: true } },
-  // 下单与订单
+  // 购物车与下单
+  { path: '/cart', name: 'cart', component: () => import('../views/Cart.vue'), meta: { requiresAuth: true } },
   { path: '/checkout', name: 'checkout', component: () => import('../views/Checkout.vue'), meta: { requiresAuth: true } },
   { path: '/orders', name: 'orders', component: () => import('../views/MyOrders.vue'), meta: { requiresAuth: true } },
   { path: '/order/:id', name: 'order-detail', component: () => import('../views/OrderDetail.vue'), meta: { requiresAuth: true } },

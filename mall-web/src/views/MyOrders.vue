@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listOrders, cancelOrder, confirmReceive } from '../api/order'
+import { listOrders, cancelOrder, confirmReceive, applyRefund } from '../api/order'
 import { money, orderStatusTag } from '../utils/format'
 
 const router = useRouter()
@@ -70,6 +70,36 @@ async function receive(row) {
   }
 }
 
+// 可申请退款：待发货 / 待收货 / 已完成（与后端 OrderStatus.refundable 保持一致）
+const canRefund = (row) => [1, 2, 3].includes(Number(row.orderStatus))
+
+async function refund(row) {
+  let reason = ''
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `对订单「${row.orderNo}」申请退款（整单全额 ¥${money(row.totalAmount)}），原因选填：`,
+      '申请退款',
+      {
+        confirmButtonText: '提交申请',
+        cancelButtonText: '取消',
+        inputType: 'textarea',
+        inputPlaceholder: '例如：不想要了 / 商品与描述不符',
+        inputValidator: (v) => (v && v.length > 255 ? '退款原因过长（最多 255 字）' : true),
+      },
+    )
+    reason = value || ''
+  } catch {
+    return // 用户取消
+  }
+  try {
+    await applyRefund(row.id, reason || undefined)
+    ElMessage.success('退款申请已提交，等待卖家或管理员审核')
+    load()
+  } catch {
+    // 拦截器已提示
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -99,7 +129,7 @@ onMounted(load)
         <el-table-column label="下单时间" width="180">
           <template #default="{ row }">{{ fmtTime(row.createdTime) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="goDetail(row.id)">详情</el-button>
             <template v-if="Number(row.orderStatus) === 0">
@@ -108,6 +138,9 @@ onMounted(load)
             </template>
             <el-button v-if="Number(row.orderStatus) === 2" link type="success" @click="receive(row)">
               确认收货
+            </el-button>
+            <el-button v-if="canRefund(row)" link type="warning" @click="refund(row)">
+              申请退款
             </el-button>
           </template>
         </el-table-column>

@@ -4,14 +4,18 @@ import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.DefaultAlipayClient;
 import com.alipay.api.domain.AlipayTradePagePayModel;
+import com.alipay.api.domain.AlipayTradeRefundModel;
 import com.alipay.api.internal.util.AlipaySignature;
 import com.alipay.api.request.AlipayTradePagePayRequest;
+import com.alipay.api.request.AlipayTradeRefundRequest;
 import com.alipay.api.response.AlipayTradePagePayResponse;
+import com.alipay.api.response.AlipayTradeRefundResponse;
 import com.payment.config.PaymentSdkProperties;
 import com.payment.entity.PayOrder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.Map;
 
 /**
@@ -76,6 +80,42 @@ public class AlipayChannel implements PayChannel {
         } catch (AlipayApiException e) {
             log.error("[alipay] 下单失败 payNo={}", payOrder.getPayNo(), e);
             throw new IllegalStateException("支付宝下单失败：" + e.getErrMsg());
+        }
+    }
+
+    /**
+     * 支付宝退款（AlipayTradeRefund）。
+     * out_request_no 用退款单号，支付宝据此保证同一退款单重复提交不会重复出款——
+     * 这是上游「渠道失败就重试」策略的安全前提。
+     */
+    @Override
+    public RefundResult refund(PayOrder payOrder, String refundNo, BigDecimal amount, String reason) {
+        if (!props.isEnabled()) {
+            // 占位配置下绝不假装退款成功：抛出让消息重试并最终落 DLQ，由人工介入
+            throw new IllegalStateException("支付宝渠道未启用（占位配置），无法退款 refundNo=" + refundNo);
+        }
+        try {
+            AlipayClient alipayClient = new DefaultAlipayClient(props.getGateway(), props.getAppId(),
+                    props.getPrivateKey(), FORMAT, CHARSET, props.getAlipayPublicKey(), SIGN_TYPE);
+            AlipayTradeRefundModel model = new AlipayTradeRefundModel();
+            model.setOutTradeNo(payOrder.getPayNo());
+            model.setRefundAmount(amount.toPlainString());
+            model.setOutRequestNo(refundNo);
+            if (reason != null && !reason.isBlank()) {
+                model.setRefundReason(reason);
+            }
+            AlipayTradeRefundRequest request = new AlipayTradeRefundRequest();
+            request.setBizModel(model);
+            AlipayTradeRefundResponse response = alipayClient.execute(request);
+            if (response.isSuccess()) {
+                log.info("[alipay] 退款成功 refundNo={} tradeNo={}", refundNo, response.getTradeNo());
+                return RefundResult.ok(response.getTradeNo());
+            }
+            log.warn("[alipay] 退款失败 refundNo={} code={} subMsg={}", refundNo, response.getCode(), response.getSubMsg());
+            return RefundResult.fail("支付宝退款失败：" + response.getSubMsg());
+        } catch (AlipayApiException e) {
+            log.error("[alipay] 退款异常 refundNo={}", refundNo, e);
+            throw new IllegalStateException("支付宝退款异常：" + e.getErrMsg(), e);
         }
     }
 

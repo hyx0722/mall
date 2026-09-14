@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getProductDetail } from '../api/product'
+import { addToCart } from '../api/cart'
 import { money } from '../utils/format'
 
 const route = useRoute()
@@ -37,6 +38,30 @@ function buy() {
     path: '/checkout',
     query: { productId: product.value.id, qty: qty.value || 1 },
   })
+}
+
+const adding = ref(false)
+
+// 加入购物车：数量累加而非覆盖（电商惯例）
+async function addCart() {
+  if (!product.value) return
+  if (!isOnShelf()) {
+    ElMessage.warning('商品已下架，无法加购')
+    return
+  }
+  adding.value = true
+  try {
+    const total = await addToCart(product.value.id, qty.value || 1)
+    ElMessage.success(`已加入购物车（车内共 ${total} 件）`)
+  } catch {
+    // 拦截器已提示
+  } finally {
+    adding.value = false
+  }
+}
+
+function goCart() {
+  router.push('/cart')
 }
 
 onMounted(load)
@@ -76,6 +101,17 @@ onMounted(load)
               <el-button type="danger" size="large" :disabled="!isOnShelf()" @click="buy">
                 立即购买
               </el-button>
+              <el-button
+                type="warning"
+                size="large"
+                plain
+                :loading="adding"
+                :disabled="!isOnShelf()"
+                @click="addCart"
+              >
+                加入购物车
+              </el-button>
+              <el-button link type="primary" @click="goCart">查看购物车</el-button>
             </div>
           </div>
         </div>

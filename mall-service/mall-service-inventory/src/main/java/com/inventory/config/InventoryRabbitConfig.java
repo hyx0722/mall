@@ -34,8 +34,11 @@ public class InventoryRabbitConfig {
     public static final String RK_DEDUCTED = RabbitTopology.RK_DEDUCTED;
     public static final String RK_DEDUCT_FAILED = RabbitTopology.RK_DEDUCT_FAILED;
 
+    public static final String RK_ORDER_REFUNDED = RabbitTopology.RK_ORDER_REFUNDED;
+
     public static final String Q_ORDER_CREATED = RabbitTopology.Q_ORDER_CREATED;
     public static final String Q_ORDER_CANCELED = RabbitTopology.Q_INVENTORY_ORDER_CANCELED;
+    public static final String Q_ORDER_REFUNDED = RabbitTopology.Q_INVENTORY_ORDER_REFUNDED;
 
     public static final String DLX_EXCHANGE = RabbitTopology.DLX_EXCHANGE;
     public static final String Q_INVENTORY_DLQ = RabbitTopology.Q_INVENTORY_DLQ;
@@ -70,6 +73,17 @@ public class InventoryRabbitConfig {
     @Bean
     public Binding bindOrderCanceled() {
         return BindingBuilder.bind(orderCanceledQueue()).to(inventoryOrderExchange()).with(RK_ORDER_CANCELED);
+    }
+
+    // 订单退款到账：回补该订单占用的库存（写 change_type=6 退货入库流水）
+    @Bean
+    public Queue orderRefundedQueue() {
+        return withDlqArgs(Q_ORDER_REFUNDED);
+    }
+
+    @Bean
+    public Binding bindOrderRefunded() {
+        return BindingBuilder.bind(orderRefundedQueue()).to(inventoryOrderExchange()).with(RK_ORDER_REFUNDED);
     }
 
     // ---------- 死信交换机 / 死信队列 ----------

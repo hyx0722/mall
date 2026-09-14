@@ -104,6 +104,58 @@ mall
 - **卖家发货** `POST /order/seller/ship`（orderId + 可选物流信息）：校验登录身份确有该单商品后写发货单。事务内**第一条语句对订单行 `select ... for update`**——串行化同一订单的多卖家并发发货，避免 RR 隔离级别下两个「最后一卖」互相读不到对方而把订单卡死在待发货；重复发货幂等（已存在发货单直接返回）。
 - **买家确认收货** `POST /order/receive?id=`：仅本人且订单处于 `2待收货` 时条件更新到 `3已完成`（同样先锁行再判定，与「最后一卖发货」并发安全）。
 
+### 2.6 退款 / 售后（订单状态机的逆向分支）
+
+正向链路走到 `3已完成` 之后没有回头路，退款补上了这条逆向分支。状态位与表结构在早期就预留好了
+（`orders.order_status` 5/6、`payment.refund` 表、`inventory_log.change_type=6`），本次把它们接上：
+
+```
+1待发货 ─┐
+2待收货 ─┼─ 买家申请退款 ──> 5退款中 ── 卖家/管理员审核通过 ──> payment 原路退回 ──> 6已退款（+ 库存回补）
+3已完成 ─┘                     │
+                               └─ 审核驳回 ──> 回到申请前的状态
+```
+
+- **归属划分**：退款状态机的主人是 **order**（`order_refund` 表记「申请-审核」），payment 只按指令办事
+  （`refund` 表记「钱退出去没有」）。两张表通过 `refund_no` 对齐，`refund_no` 由 order 侧生成。
+  两张表的 `refund_status` 语义不同，故不共用枚举：order 用 `RefundAuditStatus`（0待审核/1退款中/2已退款/3已驳回），
+  payment 仍为三态（0退款中/1成功/2失败）。
+- **买家申请** `POST /order/refund/apply`（整单全额）：条件更新 `order_status in (1,2,3) -> 5`，
+  越权拦截、可退状态校验、并发重复申请防重三件事全由这一条 WHERE 兜住；同事务写 `order_refund`(待审核) 并发
+  `refund.request(APPLY)` 让 payment 建退款单（**此时不动钱**）。
+- **审核**：卖家经 `POST /order/seller/refund/audit`，管理员经 `POST /order/admin/refund/audit`。
+  卖家只能审「整单商品都属于自己」的申请，混单（多卖家）只有管理员能审——与「商家整单取消」同规矩。
+  通过 → `order_refund` 置退款中并发 `refund.request(APPROVE)`；驳回 → 置已驳回、**订单回退到申请前状态**、
+  发 `refund.request(REJECT)`。
+- **驳回后的状态回退不需要额外记「申请前状态」**：申请退款不覆盖 `shipping_status`，
+  而 `shipping_status`（0未发货/1已发货/2已收货）与可申请退款的三态一一对应，
+  故 `OrderMapper.revertRefunding` 直接用 `case shipping_status` 反推（未发货→待发货、已发货→待收货、已收货→已完成），
+  `shipping_time` / `complete_time` 保持原值不清空。
+- **打款**：payment 调渠道原路退回（支付宝 `AlipayTradeRefund` / 微信 APIv3 `RefundService.create`），
+  `refund_no` 同时作为渠道的 `out_request_no` / `out_refund_no`，**渠道按它幂等**——这是「渠道失败就重试」
+  策略成立的前提。成功后在**同一事务**内落 `refund`(成功) + `pay_order`(已退款 2) + `pay.refund.success` 入 outbox。
+- **渠道失败的策略是抛异常重试而非置失败**：此时订单还停在 `5退款中`，把退款单置失败会造成
+  「订单说退款中、退款单说失败」的永久不一致且无人修正。抛出后由有界重试兜瞬时故障，耗尽落 `q.pay.dlq` 等人工介入。
+- **库存回补**：order 消费 `pay.refund.success` 置 `6已退款`，同事务发 `order.refunded`；
+  inventory 把该订单占用的库存从 `locked_stock` 拨回 `available_stock`，写 `change_type=6`（退货入库）流水。
+  账务动作与「取消释放」相同，区别只在流水类型——而 `change_type` 正是幂等键
+  （`inventory_log` 唯一键 `order_id+product_id+change_type`），两条链路各自幂等、互不干扰。
+- **演示路径**：渠道商户参数是占位值，退款走 `payment.mock.enabled=true` 时模拟打款成功，
+  与 `/pay/mock/success` 同一开关。
+
+### 2.7 购物车（Redis Hash）
+
+`cart:{userId}` Hash，field = `productId`，value = 数量——只存最小事实，商品名称/价格/主图在读取时
+从 `product` 表批量补全，商家改价后购物车立刻反映新价，不存在「车里存着过期价格」。
+
+- 放在 **product 服务**（`CartController`）：购物车展示必须补全商品信息，放商品服务可直接查库，省一次跨服务往返。
+- 接口：`/cart/add`（累加）、`/cart/update`（覆盖，<=0 即移除）、`/cart/remove`、`/cart/clear`、
+  `/cart/list`、`/cart/count`。单件上限 999（体验护栏，真正的超卖防护在下单链路）。
+- 下架/已删除的商品**保留在车里**但标记 `available=false` 且不可勾选结算，不会静默消失。
+- 结算**没有新增下单接口**：前端把选中项编码进 `/checkout?items=1:2,3:1`，
+  复用现有 `POST /order/createOrder`（它本来就收 `items` 列表）；下单成功后前端再调
+  `/cart/removeItems` 清理已结算条目（尽力而为，失败不影响订单）。
+
 ### 3. RabbitMQ 拓扑（常量统一在 `mall-common.RabbitTopology`）
 
 | 元素 | 名称 | 作用 |
@@ -113,6 +165,12 @@ mall
 | 路由键 | `order.canceled` | order 发布（支付超时 / 买家手动 / 商家整单取消），inventory 释放锁定 / payment 关闭未付支付单 |
 | 路由键 | `inventory.deducted` / `inventory.deduct_failed` | inventory 回执，order 订阅 |
 | 路由键 | `pay.success` | payment 发布，order 订阅（支付成功：0 待付款 → 1 待发货） |
+| 路由键 | `refund.request` | order 发布，payment 订阅（事件体带 `action=APPLY/APPROVE/REJECT`：建退款单 / 打款 / 驳回置失败） |
+| 路由键 | `pay.refund.success` | payment 发布，order 订阅（退款到账：5 退款中 → 6 已退款） |
+| 路由键 | `order.refunded` | order 发布，inventory 订阅（退货入库，回补可用库存，写 `change_type=6`） |
+| Queue | `q.pay.refund.request` | 支付侧消费退款指令（单队列，按 `action` 分派） |
+| Queue | `q.order.refund.success` | 订单侧消费退款到账回执 |
+| Queue | `q.inventory.order.refunded` | 库存侧消费退货入库事件 |
 | Queue | `q.inventory.order.created` | 库存侧消费下单事件 |
 | Queue | `q.inventory.order.canceled` | 库存侧消费订单取消事件（释放锁定库存） |
 | Queue | `q.pay.order.canceled` | 支付侧消费订单取消事件（关闭未付支付单） |
@@ -212,8 +270,10 @@ mall
 
 仓库根目录另含两个 Vue 前端工程（不参与 Maven 构建），开发时均经 Vite 代理到网关 9999：
 
-- `mall-web`：买家/卖家端 —— 注册登录、商品浏览、下单/支付、我的订单、商家中心（店铺商品 / 卖家订单）与收货地址管理等；
-- `mall-admin`：管理后台 —— 用户管理、商品管理、订单管理、库存查询、分类管理（对接各服务 `/admin/*` 接口，鉴权要求管理员角色）。
+- `mall-web`：买家/卖家端 —— 注册登录、商品浏览、**购物车**、下单/支付、我的订单（**含退款申请与进度**）、
+  商家中心（店铺商品 / 卖家订单 /**退款审核**）与收货地址管理等；
+- `mall-admin`：管理后台 —— 用户管理、商品管理、订单管理、库存查询、分类管理、**退款审核**
+  （对接各服务 `/admin/*` 接口，鉴权要求管理员角色）。
 
 ## 接口速览
 
@@ -231,9 +291,12 @@ mall
 | /user | GET /admin/listUsers?page&size&keyword · PUT /admin/updateUser · PATCH /admin/resetPwd | 后台用户管理（仅管理员） |
 | /product | GET /list | 买家分页浏览（关键词/分类/排序） |
 | /product | GET /findProductById?id= | 按 id 查商品（供下单快照） |
-| /product | GET /findProductByUserId · /findProductByUserName | 按卖家查商品 |
+| /product | GET /findProductByUserId?start&size | 商家查看自己发布的商品（含已下架），返回 `{ total, items }`，`start` 为页码 |
+| /product | GET /findProductByUserName | 按卖家用户名查其在售商品 |
 | /product | POST /addNumProduct · PUT /updateProduct · PUT /shelfProduct | 商家商品管理 |
 | /product | GET /admin/listAll?page&size&keyword · PUT /admin/shelf?id&status | 后台商品管理（仅管理员） |
+| /product | GET /cart/list · /cart/count | 购物车查看 / 角标数 |
+| /product | POST /cart/add · /cart/update · /cart/remove · /cart/removeItems · DELETE /cart/clear | 购物车增删改（`quantity<=0` 即移除） |
 | /product | GET /category/list · /category/tree | 分类浏览 |
 | /product | POST /category/add · PUT /category/update | 分类管理（仅管理员） |
 | /order | POST /createOrder | 下单（发 order.created 事件） |
@@ -243,11 +306,14 @@ mall
 | /order | POST /seller/ship | 商家发货（自有商品所属订单，写 shipping 发货单；最后一卖后整单 1→2） |
 | /order | POST /receive?id | 买家确认收货（待收货 → 已完成） |
 | /order | GET /shippings?orderId | 买家查看订单物流发货单列表 |
+| /order | POST /refund/apply · GET /refund/detail?orderId · GET /refund/list | 买家申请退款 / 查看退款进度 / 我的退款单 |
+| /order | GET /seller/refunds · POST /seller/refund/audit | 商家查看待审退款 / 审核（仅整单属于自己的订单） |
 | /order | GET /admin/findAllOrder?status · GET /admin/findDetailOrder?id · GET /admin/findOrderItems?orderId | 后台订单查询（仅管理员） |
+| /order | GET /admin/refunds?status · POST /admin/refund/audit | 后台退款审核（仅管理员，混单只能由管理员审） |
 | /inventory | POST /addNumInventory · POST /restock?productId&qty | 初始化库存 / 补货 |
 | /inventory | GET /admin/listAll?productId | 后台库存查询（仅管理员） |
 | /pay | POST /create | 创建支付单并返回渠道收银台参数（支付宝表单/微信 code_url） |
-| /pay | POST /mock/success | 模拟支付成功（测试钩子，需配置 payment.mock.enabled=true） |
+| /pay | POST /mock/success | 模拟支付成功（测试钩子，受 `payment.mock.enabled` 开关控制，仓库默认已置 true） |
 | /pay | POST /alipay/notify · POST /wx/notify | 微信/支付宝异步回调（网关白名单，无登录态） |
 
 > 网关按 `/user/**` `/product/**` `/order/**` `/inventory/**` `/pay/**` 前缀路由并 `StripPrefix=1`，上表路径是各服务 StripPrefix 之后的本服务路径。
@@ -255,6 +321,14 @@ mall
 ## 快速启动
 
 前置依赖：JDK 21、Maven、MySQL、Redis、RabbitMQ、Nacos。
+
+> **自「退款 / 购物车」起的存量迁移**：
+> - order 库需执行 `order.sql` 尾部的 `CREATE TABLE order_refund`（退款申请单）。
+> - 全部 5 个库里的 `undo_log` 表已从建表脚本中删除（Seata 早已移除，该表是残留死表）；
+>   存量库可自行 `DROP TABLE undo_log`。
+> - RabbitMQ 侧新增 `refund.request` / `pay.refund.success` / `order.refunded` 三个队列，
+>   由各服务 `RabbitConfig` 自动声明，无需手工操作。
+> - 购物车用 Redis，不需要建表；但各业务服务需能连到 Redis（配置在 Nacos `common.yaml`）。
 
 > **自「事件可靠性加固」起的存量迁移**：
 > - order/payment 库需手动补 `outbox` 建表 DDL（见 `order.sql` / `payment.sql` 尾部）；inventory 库需执行
@@ -284,7 +358,16 @@ mall
 - **事件可靠性（outbox / 延迟消息 / DLQ / DB 幂等）**：order/payment 的对外事件均走**事务 outbox**（与业务同库同事务入 `outbox` 表，relay 定时投递）；支付超时改用**延迟消息**（per-message TTL + 死信回主交换机）并保留低频对账兜底；order/inventory/payment 消费端统一**有界重试(3) + DLQ**，库存扣减改为「单事务扣库存+流水」并以 `inventory_log`（order_id, product_id, change_type 唯一键）做幂等（移除先 SETNX）。详见 §3.1。
 - **主键类型**：表主键/外键为 `BIGINT`，Java 侧实体与身份信息统一使用 `Long`。
 - **错误提示**：业务失败抛 `BusinessException`，由 `model.GlobalExceptionHandler` 统一转为 `Result.error(友好文案)`，避免向前端泄露 SQL 等内部信息。
-- **支付为真实 SDK 结构 + 占位配置**：`mall-service-payment` 已引入支付宝（`alipay-sdk-java`）与微信（`wechatpay-java` APIv3）官方 SDK 结构，但商户号/AppID/证书密钥当前为**占位值**（见 payment `application.yml` 的 `payment.*` 段），故渠道回调收不到；本地演示请置 `payment.mock.enabled=true` 后调 `POST /pay/mock/success` 模拟支付成功（走与真实回调相同的幂等落库与 `pay.success` 事件）。
+- **支付为真实 SDK 结构 + 占位配置**：`mall-service-payment` 已引入支付宝（`alipay-sdk-java`）与微信（`wechatpay-java` APIv3）官方 SDK 结构，但商户号/AppID/证书密钥当前为**占位值**（见 payment `application.yml` 的 `payment.*` 段），故渠道回调收不到；本地演示调 `POST /pay/mock/success` 模拟支付成功即可（走与真实回调相同的幂等落库与 `pay.success` 事件）。
+
+  > `payment.mock.enabled` 在本仓 `application.yml` 中**默认已置 `true`**，方便开箱演示。
+  > 它同时开关**模拟支付**与**模拟退款打款**两处，且 `POST /pay/mock/success` 只校验支付单归属、
+  > 不校验真实资金——**部署到任何非本地环境前必须改回 `false`**（或用 Nacos `common.yaml` 覆盖）。
 - **支付超时自动取消**：主路径为下单时入箱的超时延迟消息（`order.pay-timeout-minutes` 默认 30 分钟，per-message TTL 到点死信触发），order 消费后经统一取消漏斗条件 0→4 并同事务 outbox 发 `order.canceled`（inventory 释放锁定、payment 关闭未付支付单）；另保留每 5 分钟的对账扫表兜底，防延迟消息丢失/宕机窗口。取消与支付同为 `order_status=0` 条件更新，谁先提交谁生效。
 - **发货/收货并发**：`/seller/ship` 与 `/receive` 事务内第一条语句对订单行 `select ... for update`，串行化同一订单的并发操作。下单时锁库存、支付、取消等已处理，故发货按「卖家是否已全部发货」聚合整单推进；混单（多卖家）必须各自都发货后整单才 `1 → 2待收货`，买家确认整单收货后 `→ 3已完成`。
-- **已知未完成**：退款/售后链路（`refund` 表 / `order_status` 5退款中、6已退款 / `inventory_log` change_type=6 / `payment_status=2` 等均已预留但无代码路径）、真正可用的分布式事务（Seata 依赖已移除，`@GlobalTransactional` 仅演示用后已清理）尚未实现。发布侧发送未开 publisher-confirms（无法路由的消息静默丢失仍靠对账兜底）。
+- **退款的已知边界**：只支持**整单全额**退款（不支持按明细部分退款，`refund_amount` 恒等于订单总额）；
+  未接渠道的**退款结果异步通知**，微信 `PROCESSING`（已受理未到账）在演示中直接视为成功并置终态；
+  渠道持续失败时退款单停在「退款中」、订单停在 `5退款中`，靠消息重试耗尽落 `q.pay.dlq` 等人工介入，
+  没有自动对账/补偿任务（支付侧的 5 分钟对账兜底只覆盖未付款超时，不覆盖退款）。
+- **已知未完成**：真正可用的分布式事务（Seata 依赖已移除，`@GlobalTransactional` 仅演示用后已清理）尚未实现。
+  发布侧发送未开 publisher-confirms（无法路由的消息静默丢失仍靠对账兜底）。

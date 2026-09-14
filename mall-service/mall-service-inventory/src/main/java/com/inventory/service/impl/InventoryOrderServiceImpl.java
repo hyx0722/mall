@@ -22,8 +22,11 @@ import java.util.Map;
 @Slf4j
 public class InventoryOrderServiceImpl implements InventoryOrderService {
 
+    /** 变动类型，与 inventory.sql 的 change_type 注释一致 */
     private static final int CHANGE_LOCK = 3;
     private static final int CHANGE_RELEASE = 4;
+    /** 退款到账后的退货入库（与取消释放同为 locked->available，但幂等键不同） */
+    private static final int CHANGE_REFUND_RETURN = 6;
 
     @Autowired
     InventoryMapper inventoryMapper;
@@ -99,6 +102,45 @@ public class InventoryOrderServiceImpl implements InventoryOrderService {
             logRow.setBeforeLockedStock(row.getLockedStock());
             logRow.setAfterLockedStock(row.getLockedStock() - qty);
             logRow.setRemark("订单取消释放");
+            inventoryLogMapper.insertLog(logRow);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void returnForOrder(Long orderId, Map<Long, Integer> productQty) {
+        for (Map.Entry<Long, Integer> e : productQty.entrySet()) {
+            Long productId = e.getKey();
+            Integer qty = e.getValue();
+            if (qty == null || qty <= 0) {
+                continue;
+            }
+            // 幂等：已回补过（有 change_type=6 流水）则跳过
+            if (inventoryLogMapper.countByOrderAndProductType(orderId, productId, CHANGE_REFUND_RETURN) > 0) {
+                log.info("[inventory] 订单 {} 商品 {} 已有退货入库流水，跳过重复回补", orderId, productId);
+                continue;
+            }
+            Inventory row = inventoryMapper.selectByProductId(productId);
+            if (row == null) {
+                log.warn("[inventory] 订单 {} 商品 {} 无库存记录，跳过退款回补", orderId, productId);
+                continue;
+            }
+            // 与取消释放同一账务动作：占用中的库存拨回可卖，total_stock 不变
+            int affected = inventoryMapper.releaseLocked(productId, qty);
+            if (affected == 0) {
+                log.warn("[inventory] 订单 {} 商品 {} 退款回补失败(锁定不足，可能已释放)，跳过", orderId, productId);
+                continue;
+            }
+            InventoryLog logRow = new InventoryLog();
+            logRow.setProductId(productId);
+            logRow.setOrderId(orderId);
+            logRow.setChangeType(CHANGE_REFUND_RETURN);
+            logRow.setChangeQuantity(qty);
+            logRow.setBeforeTotalStock(row.getTotalStock());
+            logRow.setAfterTotalStock(row.getTotalStock());
+            logRow.setBeforeLockedStock(row.getLockedStock());
+            logRow.setAfterLockedStock(row.getLockedStock() - qty);
+            logRow.setRemark("退款退货入库");
             inventoryLogMapper.insertLog(logRow);
         }
     }

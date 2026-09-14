@@ -2,11 +2,13 @@ package com.order.mapper;
 
 import com.model.bean.Order;
 import com.order.bean.OrderItem;
+import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
+@Mapper
 public interface OrderAdminMapper {
 
     // ---------- 管理员：查看所有订单 ----------
