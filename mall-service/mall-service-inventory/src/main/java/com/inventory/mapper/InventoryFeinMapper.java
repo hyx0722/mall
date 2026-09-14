@@ -20,6 +20,12 @@ public interface InventoryFeinMapper {
     @Select("select * from inventory where product_id=#{productId} and user_id=#{userId}")
     Inventory findByProductIdAndUser(@Param("productId") Long productId, @Param("userId") Long userId);
 
+    // 商品归属校验（跨库直读 product，与 findAllInventory 同款先例）：
+    // 初始化库存前必须确认该商品确属调用者，否则任何人都能给他人的商品抢建库存行，
+    // 令货主后续 restock 查不到自己的行而无法补货。
+    @Select("select count(*) from mall_service_product.product where id=#{productId} and user_id=#{userId}")
+    int countOwnedProduct(@Param("productId") Long productId, @Param("userId") Long userId);
+
     @Insert("insert into " +
             "inventory(product_id,user_id,total_stock,locked_stock,available_stock,sales_count,created_time,updated_time) " +
             "values " +

@@ -38,6 +38,22 @@
             <groupId>io.github.openfeign</groupId>
             <artifactId>feign-core</artifactId>
         </dependency>
+        <!--
+            micrometer（MeterBinder/MeterRegistry），供 OutboxMetrics 编译。
+            scope=provided：本模块只用到其 API，运行期由各业务服务自带的 actuator 提供，
+            避免把 actuator 传递进本模块的每个使用者。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <!-- 测试：MockHttpServletRequest/Response（身份拦截器的读写与清理，无需 DB） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
 </project>

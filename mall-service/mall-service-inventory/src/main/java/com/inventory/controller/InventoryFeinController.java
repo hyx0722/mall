@@ -27,14 +27,17 @@ public class InventoryFeinController {
     @Autowired
     InventoryFeinService inventoryFeinService;
 
-    //为商品初始化库存：product_id 唯一键防重，重复初始化解 DuplicateKey 时显式报错
+    //为商品初始化库存：product_id 唯一键防重，重复初始化解 DuplicateKey 时显式报错。
+    //归属只认登录态：service 会校验该商品确属调用者，请求体里的 userId 被覆盖。
     @PostMapping("/addNumInventory")
     public Result addNumInventory(@RequestBody @Validated Product product){
+        Auths.requireLogin();
+        Long userId = Auths.currentUserId();
         if(inventoryFeinService.findNumInventory(product)!=null){
             return Result.error("该商品已存在库存中，请修改");
         }
         try {
-            inventoryFeinService.addNumInventory(product);
+            inventoryFeinService.addNumInventory(userId, product);
         } catch (DuplicateKeyException e) {
             return Result.error("该商品已存在库存中，请修改");
         }

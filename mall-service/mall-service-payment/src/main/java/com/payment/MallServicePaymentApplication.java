@@ -1,6 +1,7 @@
 package com.payment;
 
 import com.mall.common.feign.CommonFeignConfig;
+import com.mall.common.metrics.OutboxMetricsConfig;
 import com.mall.common.web.CommonWebConfig;
 import com.model.web.GlobalExceptionHandler;
 import org.springframework.boot.SpringApplication;
@@ -16,7 +17,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EnableFeignClients
 @EnableTransactionManagement
 @EnableScheduling
-@Import({GlobalExceptionHandler.class, CommonWebConfig.class, CommonFeignConfig.class})
+@Import({GlobalExceptionHandler.class, CommonWebConfig.class, CommonFeignConfig.class, OutboxMetricsConfig.class})
 public class MallServicePaymentApplication {
     public static void main(String[] args) {
         SpringApplication.run(MallServicePaymentApplication.class,args);

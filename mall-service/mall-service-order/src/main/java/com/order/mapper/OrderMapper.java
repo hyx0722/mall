@@ -46,10 +46,6 @@ public interface OrderMapper extends BaseMapper<Order> {
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insertOrder(Order order);
 
-    // 库存扣减失败回执：待付款 -> 已取消
-    @Update("update orders set order_status=4, cancel_time=now() where order_no=#{orderNo} and order_status=0")
-    int markDeductFailed(@Param("orderNo") String orderNo);
-
     // 支付成功回执：待付款 -> 待发货（防重：仅当仍处于待付款）
     @Update("update orders set order_status=1 where id=#{orderId} and order_status=0")
     int markPaid(@Param("orderId") Long orderId);

@@ -1,0 +1,145 @@
+# mall 的本地依赖中间件：MySQL / Redis / RabbitMQ / Nacos
+#
+# 用途：把「跑起来」的前置依赖收敛成一条命令。业务服务仍在 IDE 里启动
+#      （各服务需从 Nacos 读取 common.yaml / datasource.yaml，见 README「快速启动」）。
+#
+#   cp .env.example .env   # ⚠️ 必须填 MYSQL_PASSWORD（缺了本文件直接中止）；
+#                          #    若已有配好的 .env，不要覆盖它
+#   docker compose up -d
+#   # 注：JWT_SECRET 不在此列 —— compose 不读它、也不注入任何容器（业务服务跑在宿主机上，
+#   #     不在容器里）。它要设进**进程环境变量**，见 .env.example 的说明。
+#
+# ⚠️ 宿主机端口默认**错开**（见下面各服务的 ports），以便与本机已装的
+#    MySQL / Redis / RabbitMQ 并存而不抢端口：
+#
+#      MySQL     3307 -> 容器 3306     （本机原生 MySQL80 占用 3306）
+#      Redis     6380 -> 容器 6379     （WSL 里的 Redis 占用 6379）
+#      RabbitMQ  5673 -> 容器 5672     （WSL 里的 RabbitMQ 占用 5672/15672）
+#      RabbitMQ 15673 -> 容器 15672
+#      Nacos     8858 -> 容器 8848     （本机 E:\javase\nacos-3.2.3 占用 8848）
+#      Nacos  9858/9859 -> 9848/9849
+#
+#    要让容器占标准端口（此时须先停掉本机对应中间件），在 .env 里覆盖这些变量即可，
+#    例如 MYSQL_PORT=3306。**注意：业务服务是按标准端口连中间件的**
+#    （数据源地址在 Nacos 配置里、RabbitMQ 在各自 application.yml 里），
+#    所以默认这套错位端口上的容器只是「并存可用」，服务连的仍是本机那套中间件。
+#
+# MySQL 首次启动会自动执行各模块 resources 下的建表脚本（挂到 initdb 目录）。
+# 注意：initdb 只在数据卷为空时执行一次；改了 SQL 想重建，先 docker compose down -v。
+name: mall
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: mall-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:?请在 .env 中设置 MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # 与 Windows 上大小写不敏感的本地 MySQL 对齐，避免「本地能跑、容器里报表不存在」
+      - --lower-case-table-names=1
+    ports:
+      # 宿主机端口默认错开（本机原生 MySQL80 占 3306）；要占标准端口设 MYSQL_PORT=3306
+      - "${MYSQL_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 文件名前缀仅用于固定执行顺序；各脚本自带 CREATE DATABASE + USE，实际互不依赖
+      - ./mall-service/mall-service-user/src/main/resources/User.sql:/docker-entrypoint-initdb.d/01-user.sql:ro
+      - ./mall-service/mall-service-product/src/main/resources/Product.sql:/docker-entrypoint-initdb.d/02-product.sql:ro
+      - ./mall-service/mall-service-order/src/main/resources/order.sql:/docker-entrypoint-initdb.d/03-order.sql:ro
+      - ./mall-service/mall-service-inventory/src/main/resources/inventory.sql:/docker-entrypoint-initdb.d/04-inventory.sql:ro
+      - ./mall-service/mall-service-payment/src/main/resources/payment.sql:/docker-entrypoint-initdb.d/05-payment.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: mall-redis
+    restart: unless-stopped
+    ports:
+      # 宿主机端口默认错开（本机 WSL 里的 Redis 占 6379）；要占标准端口设 REDIS_PORT=6379
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: mall-rabbitmq
+    restart: unless-stopped
+    environment:
+      # 默认沿用 guest，让 IDE 里现成的配置开箱即用；
+      # 需要独立账号时在 .env 里改这两个变量，业务服务侧读 RABBITMQ_USERNAME / RABBITMQ_PASSWORD
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      # 宿主机端口默认错开（本机 WSL 里的 RabbitMQ 占 5672/15672）
+      - "${RABBITMQ_PORT:-5673}:5672"                  # AMQP
+      - "${RABBITMQ_MGMT_PORT:-15673}:15672"           # 管理台 http://localhost:15673
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/10-mall.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  nacos:
+    # 未固定小版本（无法预知可用的 tag）：如需可复现构建，请自行改成具体版本
+    image: nacos/nacos-server:latest
+    container_name: mall-nacos
+    restart: unless-stopped
+    environment:
+      MODE: standalone
+      # 本地演示未开鉴权；生产请设 NACOS_AUTH_ENABLE=true 并配置独立账号
+      NACOS_AUTH_ENABLE: "false"
+      # ⚠️ 即便 NACOS_AUTH_ENABLE=false，Nacos 3.x 镜像的启动脚本仍会**无条件校验**本变量：
+      #    为空就 `echo 'env NACOS_AUTH_TOKEN must be set with Base64 String.' && exit 255`，
+      #    配上 restart: unless-stopped 会变成无限重启（docker compose ps 显示 Restarting）。
+      #    要求：Base64 编码，且**解码后长度 >= 32 字符**。
+      #    下面是个演示用占位值 —— 真开了鉴权（NACOS_AUTH_ENABLE=true）就必须换成自己的。
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-K/eP2yv4G1qrXmHuGNVSg2mDTOB87eMa9BpXO+ZSx6c=}
+      # 同样被无条件校验：非空即可（服务端身份标识，仅在集群/鉴权时才有实际作用）
+      #    为空会依次报 'env NACOS_AUTH_IDENTITY_KEY must be set.' / '..._VALUE must be set.'
+      NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-mallServerIdentity}
+      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-mallServerIdentityValue}
+      JVM_XMS: 256m
+      JVM_XMX: 512m
+      JVM_XMN: 128m
+    ports:
+      # 宿主机端口默认错开（本机 E:\javase\nacos-3.2.3 占 8848）；要占标准端口设 NACOS_PORT=8848
+      # 注意 gRPC 端口 = HTTP 端口 + 1000，客户端按 server-addr 推出，所以三个端口要一起挪
+      - "${NACOS_PORT:-8858}:8848"          # HTTP / 控制台 http://localhost:8858/nacos
+      - "${NACOS_GRPC_PORT:-9858}:9848"     # gRPC（Nacos 2.x+ 客户端必需，缺了会连不上）
+      - "${NACOS_RAFT_PORT:-9859}:9849"     # gRPC（服务端间通信）
+    volumes:
+      - nacos-data:/home/nacos/data
+    healthcheck:
+      # ⚠️ 不要用 /nacos/v1/console/health/readiness —— Nacos 3.x 已移除该端点（返回 404），
+      #    用它会让容器永远停在 health: starting，最终翻成 unhealthy（但服务其实可用）。
+      #    探测控制台根路径即可：服务未就绪时返回非 2xx。
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8848/nacos/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+volumes:
+  mysql-data:
+  redis-data:
+  rabbitmq-data:
+  nacos-data:

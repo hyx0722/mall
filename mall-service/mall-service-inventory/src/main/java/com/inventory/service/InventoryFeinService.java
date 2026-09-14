@@ -9,7 +9,8 @@ public interface InventoryFeinService {
 
     Inventory findNumInventory(Product product);
 
-    void addNumInventory(Product product);
+    /** 为商品初始化库存（校验商品归属后写入，userId 以登录态为准） */
+    void addNumInventory(Long userId, Product product);
 
     /** 商家给自有商品补货（校验归属并写库存流水） */
     void restock(Long userId, Long productId, Integer qty);

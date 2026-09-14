@@ -25,7 +25,18 @@ public class InventoryFeinServiceImpl implements InventoryFeinService {
 
     @Override
     @Transactional
-    public void addNumInventory(Product product) {
+    public void addNumInventory(Long userId, Product product) {
+        if (userId == null) {
+            throw new BusinessException("请先登录");
+        }
+        if (product.getId() == null) {
+            throw new BusinessException("缺少商品 id");
+        }
+        // 归属校验：只能为自己名下的商品初始化库存（跨库读 product）
+        if (inventoryFeinMapper.countOwnedProduct(product.getId(), userId) == 0) {
+            throw new BusinessException("商品不存在或无权操作");
+        }
+        product.setUserId(userId);   // 归属以登录态为准，覆盖请求体
         inventoryFeinMapper.addNumInventory(product);
     }
 

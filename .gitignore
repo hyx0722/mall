@@ -12,6 +12,15 @@ target/
 *.log
 logs/
 
+# ===== 本地凭据 / 环境变量（.env.example 是模板，允许提交）=====
+.env
+.env.local
+*.env
+!.env.example
+
+# ===== Docker 数据卷（默认落在 managed volume，此处兜底）=====
+docker/data/
+
 # ===== 操作系统 =====
 .DS_Store
 Thumbs.db

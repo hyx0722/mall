@@ -1,373 +1,207 @@
 # mall —— 基于 Spring Cloud 的微服务商城
 
-一个用于学习与演示的电商后端项目。基于 Spring Cloud 微服务架构，采用 Nacos 注册/配置中心、Spring Cloud Gateway 网关、MyBatis-Plus 操作 MySQL，Redis 做缓存与登录态，RabbitMQ 解耦「下单 → 扣库存」链路，可在简单的模拟高并发下单场景下运行。
+一个用于学习与演示的电商后端项目。基于 Spring Cloud 微服务架构，采用 Nacos 注册/配置中心、
+Spring Cloud Gateway 网关、MyBatis-Plus 操作 MySQL，Redis 做缓存与登录态，
+RabbitMQ 解耦「下单 → 扣库存 → 支付」链路。
+
+> 本文只讲**这是什么**和**怎么跑起来**。设计细节在 [`docs/`](docs/README.md)，见文末[文档地图](#文档地图)。
 
 ## 技术栈
 
 | 类别 | 选型 |
 | ---- | ---- |
 | 语言 / 构建 | Java 21、Maven（多模块） |
-| 微服务框架 | Spring Cloud `2025.1.0`、Spring Cloud Alibaba `2025.1.0.0` |
-| 基础框架 | Spring Boot `4.0.0` |
+| 基础框架 / 微服务 | Spring Boot `4.0.0`、Spring Cloud `2025.1.0`、Spring Cloud Alibaba `2025.1.0.0` |
 | 注册 / 配置中心 | Nacos |
 | 网关 | Spring Cloud Gateway |
-| ORM | MyBatis-Plus `3.5.17` |
+| ORM / 连接池 | MyBatis-Plus `3.5.17`、Druid `1.2.28` |
 | 存储 / 缓存 | MySQL、Redis |
 | 消息队列 | RabbitMQ |
 | 鉴权 | JWT（网关统一校验）+ Redis 登录态（单设备登录） |
-| 分布式锁 / 布隆等 | Redisson |
+| 分布式锁 | Redisson `4.7.0` |
+
+全量版本与 Boot 4 时代的依赖坑见 [docs/architecture.md](docs/architecture.md#技术栈全量版本)。
 
 ## 模块结构
 
 ```
 mall
-├── model                      # 公共模块：实体 bean、统一返回 Result、全局异常、事件、工具类
-├── mall-common                # 公共模块：身份拦截器、Feign 公共配置、Rabbit 拓扑常量（业务服务 @Import 复用）
+├── model                      # 契约模块：实体、统一返回 Result、业务异常、领域事件契约、状态枚举
+├── mall-common                # 运行时共享：身份拦截器、Auths 断言、Feign 配置、Rabbit 拓扑、outbox 指标
 ├── mall-gateway               # 网关：路由转发 + JWT 鉴权 + 注入用户身份头
 ├── mall-service               # 业务服务聚合模块
 │   ├── mall-service-user      # 用户 / 收货地址 / 商家上架商品入口
-│   ├── mall-service-product   # 商品 / 分类（商家管理 + 买家浏览）
-│   ├── mall-service-order     # 订单（下单主流程）
+│   ├── mall-service-product   # 商品 / 分类 / 购物车
+│   ├── mall-service-order     # 订单（下单 + 取消 / 发货 / 收货 / 退款）
 │   ├── mall-service-inventory # 库存（MQ 消费扣减 + 补货 + 流水）
-│   └── mall-service-payment   # 支付（微信/支付宝）
+│   └── mall-service-payment   # 支付（微信 / 支付宝）
 └── pom.xml                    # 父工程（依赖版本统一管理）
 ```
 
-> 仓库根目录另含两个 **Vue 前端工程**（不参与 Maven 构建）：`mall-web`（买家/卖家端）与 `mall-admin`（管理后台），详见 §10。
+仓库根目录另含两个 **Vue 前端工程**（不参与 Maven 构建）：`mall-web`（买家/卖家端，dev 端口
+**5173**）与 `mall-admin`（管理后台，dev 端口 **5174**），两者均经 Vite 代理到网关 9999。
+详见各自的 README：[mall-web](mall-web/README.md) · [mall-admin](mall-admin/README.md)。
 
-### 服务与端口
+## 服务与端口
 
 | 服务 | 端口 | 说明 |
 | ---- | ---- | ---- |
-| mall-gateway | 9999 | 统一入口，路由 /user /product /order /inventory /pay |
-| mall-service-user | 9001 | 注册登录 / 资料 / 收货地址 / 商家一键上架 |
-| mall-service-product | 9002 | 商品与分类 |
-| mall-service-order | 9003 | 下单 |
-| mall-service-inventory | 9004 | 库存锁定/扣减/补货 |
-| mall-service-payment | 9005 | 支付（建支付单/渠道下单/异步回调/模拟支付） |
+| mall-gateway | 9999 | 统一入口，路由 `/user` `/product` `/order` `/inventory` `/pay` |
+| mall-service-user | 9000 | 注册登录 / 资料 / 收货地址 / 商家一键上架 |
+| mall-service-product | 8000 | 商品、分类、购物车 |
+| mall-service-order | 6000 | 下单 / 取消 / 发货 / 收货 / 退款 |
+| mall-service-inventory | 5000 | 库存锁定 / 扣减 / 补货 |
+| mall-service-payment | 9005 | 支付（建支付单 / 渠道下单 / 异步回调 / 模拟支付） |
 
-> 下游业务服务自身不做 JWT 鉴权，只信任网关注入的 `X-User-Id` / `X-Username` / `X-User-Role`（网关会先剥离入站同名伪造头再注入）；user 服务因承担登录签发，另保留一层本地 `LoginInterceptor` 二次校验。下游统一用 `mall-common.Auths` 读取当前用户/角色（`requireLogin()` / `requireAdmin()` 断言），详见 §8。
+> ⚠️ 上表是**实际生效的端口**，和仓库里 `application.yml` 写的 **9001-9005 不一致**——
+> 因为端口由 **Nacos 的 `common.yaml` 覆盖**（namespace `dev`、group `mall-service-<name>`）。
+> 排查端口对不上时，**以 Nacos 为准**，不要看仓库里的 yml。
+> 例外：payment 的 Nacos 配置把键名写成了 `spring.port`（无效键），故它回落到本地的 9005。
+> 完整解析规则见 [docs/architecture.md](docs/architecture.md#端口从哪来这一节能省你半小时)。
 
-## 主要业务逻辑
-
-### 1. 登录与鉴权链路（单设备登录）
-
-1. 客户端经网关 `POST /user/login`（白名单，不校验 token）登录。
-2. user 服务校验 BCrypt 密码（`status=0` 的禁用账号直接拒绝登录）→ 签发 JWT（内含 `claims.id / claims.username / claims.role`，有效期 1h）→ 写入 Redis `login:token:{id}`（TTL 1h）。
-3. 网关 `AuthGlobalFilter` 对白名单外的请求统一鉴权：
-   - 解析 JWT → 校验 Redis 中 token 与当前一致（支持主动失效 / 单设备踢下线）；
-   - 通过后剥离入站伪造的 `X-User-Id/X-Username/X-User-Role`，再注入真实身份头下发给下游。
-4. 下游 product/order/inventory 通过 `mall-common.IdentityInterceptor` 把身份头（含 `role`）写入 `ThreadLocal`，controller/service 用 `mall-common.Auths` 读取当前用户/角色并做 `requireLogin()` / `requireAdmin()` 断言；user 服务由 `LoginInterceptor` 直接解析 JWT + 校验 Redis。
-5. 改密 / 删号（以及 Redis 1h TTL 到期）会使 `login:token:{id}` 失效，旧 token 立即不可用。
-
-### 2. 下单 → 锁库存 → 支付 → 发货 主链路（RabbitMQ 解耦「订单 ↔ 库存 ↔ 支付」）
-
-模拟高并发场景，下单与扣库存通过消息异步解耦；**订单只有在支付成功后才会进入「待发货」**：
-
-```
-客户端 --createOrder--> order 服务 --order.created--> RabbitMQ --消费--> inventory 服务
-                                        ^                                |
-                                        +--- deducted / deduct_failed --+（回执确认锁库存/失败）
-客户端 --pay/create---> payment 服务 ----支付单/渠道收银台-----------+
-    |                                                                  |
-    +--(渠道回调/mock)-- payment 落 pay_order=成功 --pay.success--> order 0待付款->1待发货
-```
-
-- **order 服务 `OrderServiceImpl.createOrder`（`@Transactional`）**
-  1. 循环订单明细，Feign 同步拉取商品快照（价格 / 名称 / 主图），校验上架状态并计算总金额；
-  2. 同一本地事务写 `orders`（状态 0 待付款，`useGeneratedKeys` 回填主键）+ `order_item` 明细；
-  3. **事务提交后（`afterCommit`）**才向 `mall.order.exchange` 发布 `order.created`，避免下游在订单未落库时就消费。
-- **inventory 服务 `OrderCreatedListener` 消费 `order.created`**
-  1. 幂等：对 `orderNo` 执行 **Redis `SETNX dedup:order:{orderNo}`（TTL 24h）**，重复投递直接跳过，防同一订单被扣两次；
-  2. 逐商品加 **Redisson 分布式锁 `lock:stock:{productId}`**；
-  3. 条件 `UPDATE inventory SET locked_stock+?, available_stock-? WHERE available_stock>=?`（DB 条件保证不超卖，下单即预占库存）；
-  4. 写库存流水 `inventory_log`（`change_type=3` 下单锁定）。
-- **回执**：全部锁定成功 → 发 `inventory.deducted`；任一商品不足/失败 → 回补已锁定库存并发 `inventory.deduct_failed`。
-- **order 服务 `OrderResultListener` 消费回执**：`deducted` 仅确认「库存已锁定」，订单**保持 0 待付款**等待支付；`deduct_failed` 把订单 `0 → 4 已取消`（都带 `order_status=0` 条件，天然防重）。
-- **payment 服务支付**
-  1. 买家 `POST /pay/create`（走网关登录态）→ Feign 复用 `GET /order/findDetailOrder?id=` 校验归属 + 待付款 → 幂等建 `pay_order`（`pay_no` 即渠道 `out_trade_no`）→ 调渠道（支付宝电脑网站 / 微信 Native）返回收银台参数；
-  2. 渠道异步回调（或测试钩子 `POST /pay/mock/success`）→ payment 验签 → 事务内幂等把 `pay_order` 置 `payment_status=1` 并落 `payment_record` → **事务提交后（`afterCommit`）发布 `pay.success`**；
-  3. **order 服务 `PaySuccessListener` 消费 `pay.success`** → `markPaid`：`0 待付款 → 1 待发货`（`order_status=0` 条件，天然防重）。
-
-### 2.5 发货 → 确认收货 → 完成（订单状态机下半段）
-
-支付成功后订单停在 `1待发货`，随后的发货/收货/完成由 **order 服务本地状态机**推进（不涉及库存/支付，无需额外 MQ 事件），状态推进沿用「条件 UPDATE + 受影响行数」防重惯例：
-
-```
-支付成功(pay.success) markPaid              0待付款 → 1待发货  （同事务后冻结 receiver_* 收货快照）
-卖家对自有商品发货（新增 shipping 发货单）   1待发货 → 2待收货  （最后一卖触发整单翻转）
-买家确认收货                                 2待收货 → 3已完成  （complete_time 落值）
-```
-
-- **收货快照**：支付成功（`handlePaid`）后即以 `orders.address_id` 从 user 库冻结 `receiver_name/phone/address`（跨库直读，本仓已有同款先例），供卖家发货前预览与面单；地址已失效/缺失时尽力兜底默认地址，实在无地址则留给发货时再补一次。
-- **混单拆分发货**：`orders` 一行只承载整单状态，但一单可含多个卖家商品，故新增 `shipping` 表（`uk_order_seller(order_id, seller_id)`，每卖家每单一条）记录各卖家各自的发货单（物流公司/单号/发货时间）。整单 `2待收货` 由「该单已发货卖家数 == 该单卖家总数」判定，最后一个卖家发货时条件翻转 `1 → 2`。
-- **卖家发货** `POST /order/seller/ship`（orderId + 可选物流信息）：校验登录身份确有该单商品后写发货单。事务内**第一条语句对订单行 `select ... for update`**——串行化同一订单的多卖家并发发货，避免 RR 隔离级别下两个「最后一卖」互相读不到对方而把订单卡死在待发货；重复发货幂等（已存在发货单直接返回）。
-- **买家确认收货** `POST /order/receive?id=`：仅本人且订单处于 `2待收货` 时条件更新到 `3已完成`（同样先锁行再判定，与「最后一卖发货」并发安全）。
-
-### 2.6 退款 / 售后（订单状态机的逆向分支）
-
-正向链路走到 `3已完成` 之后没有回头路，退款补上了这条逆向分支。状态位与表结构在早期就预留好了
-（`orders.order_status` 5/6、`payment.refund` 表、`inventory_log.change_type=6`），本次把它们接上：
-
-```
-1待发货 ─┐
-2待收货 ─┼─ 买家申请退款 ──> 5退款中 ── 卖家/管理员审核通过 ──> payment 原路退回 ──> 6已退款（+ 库存回补）
-3已完成 ─┘                     │
-                               └─ 审核驳回 ──> 回到申请前的状态
-```
-
-- **归属划分**：退款状态机的主人是 **order**（`order_refund` 表记「申请-审核」），payment 只按指令办事
-  （`refund` 表记「钱退出去没有」）。两张表通过 `refund_no` 对齐，`refund_no` 由 order 侧生成。
-  两张表的 `refund_status` 语义不同，故不共用枚举：order 用 `RefundAuditStatus`（0待审核/1退款中/2已退款/3已驳回），
-  payment 仍为三态（0退款中/1成功/2失败）。
-- **买家申请** `POST /order/refund/apply`（整单全额）：条件更新 `order_status in (1,2,3) -> 5`，
-  越权拦截、可退状态校验、并发重复申请防重三件事全由这一条 WHERE 兜住；同事务写 `order_refund`(待审核) 并发
-  `refund.request(APPLY)` 让 payment 建退款单（**此时不动钱**）。
-- **审核**：卖家经 `POST /order/seller/refund/audit`，管理员经 `POST /order/admin/refund/audit`。
-  卖家只能审「整单商品都属于自己」的申请，混单（多卖家）只有管理员能审——与「商家整单取消」同规矩。
-  通过 → `order_refund` 置退款中并发 `refund.request(APPROVE)`；驳回 → 置已驳回、**订单回退到申请前状态**、
-  发 `refund.request(REJECT)`。
-- **驳回后的状态回退不需要额外记「申请前状态」**：申请退款不覆盖 `shipping_status`，
-  而 `shipping_status`（0未发货/1已发货/2已收货）与可申请退款的三态一一对应，
-  故 `OrderMapper.revertRefunding` 直接用 `case shipping_status` 反推（未发货→待发货、已发货→待收货、已收货→已完成），
-  `shipping_time` / `complete_time` 保持原值不清空。
-- **打款**：payment 调渠道原路退回（支付宝 `AlipayTradeRefund` / 微信 APIv3 `RefundService.create`），
-  `refund_no` 同时作为渠道的 `out_request_no` / `out_refund_no`，**渠道按它幂等**——这是「渠道失败就重试」
-  策略成立的前提。成功后在**同一事务**内落 `refund`(成功) + `pay_order`(已退款 2) + `pay.refund.success` 入 outbox。
-- **渠道失败的策略是抛异常重试而非置失败**：此时订单还停在 `5退款中`，把退款单置失败会造成
-  「订单说退款中、退款单说失败」的永久不一致且无人修正。抛出后由有界重试兜瞬时故障，耗尽落 `q.pay.dlq` 等人工介入。
-- **库存回补**：order 消费 `pay.refund.success` 置 `6已退款`，同事务发 `order.refunded`；
-  inventory 把该订单占用的库存从 `locked_stock` 拨回 `available_stock`，写 `change_type=6`（退货入库）流水。
-  账务动作与「取消释放」相同，区别只在流水类型——而 `change_type` 正是幂等键
-  （`inventory_log` 唯一键 `order_id+product_id+change_type`），两条链路各自幂等、互不干扰。
-- **演示路径**：渠道商户参数是占位值，退款走 `payment.mock.enabled=true` 时模拟打款成功，
-  与 `/pay/mock/success` 同一开关。
-
-### 2.7 购物车（Redis Hash）
-
-`cart:{userId}` Hash，field = `productId`，value = 数量——只存最小事实，商品名称/价格/主图在读取时
-从 `product` 表批量补全，商家改价后购物车立刻反映新价，不存在「车里存着过期价格」。
-
-- 放在 **product 服务**（`CartController`）：购物车展示必须补全商品信息，放商品服务可直接查库，省一次跨服务往返。
-- 接口：`/cart/add`（累加）、`/cart/update`（覆盖，<=0 即移除）、`/cart/remove`、`/cart/clear`、
-  `/cart/list`、`/cart/count`。单件上限 999（体验护栏，真正的超卖防护在下单链路）。
-- 下架/已删除的商品**保留在车里**但标记 `available=false` 且不可勾选结算，不会静默消失。
-- 结算**没有新增下单接口**：前端把选中项编码进 `/checkout?items=1:2,3:1`，
-  复用现有 `POST /order/createOrder`（它本来就收 `items` 列表）；下单成功后前端再调
-  `/cart/removeItems` 清理已结算条目（尽力而为，失败不影响订单）。
-
-### 3. RabbitMQ 拓扑（常量统一在 `mall-common.RabbitTopology`）
-
-| 元素 | 名称 | 作用 |
-| ---- | ---- | ---- |
-| TopicExchange | `mall.order.exchange` | 下单/支付/取消事件总线（durable，order/inventory/payment 三端共用） |
-| 路由键 | `order.created` | order 发布，inventory 订阅 |
-| 路由键 | `order.canceled` | order 发布（支付超时 / 买家手动 / 商家整单取消），inventory 释放锁定 / payment 关闭未付支付单 |
-| 路由键 | `inventory.deducted` / `inventory.deduct_failed` | inventory 回执，order 订阅 |
-| 路由键 | `pay.success` | payment 发布，order 订阅（支付成功：0 待付款 → 1 待发货） |
-| 路由键 | `refund.request` | order 发布，payment 订阅（事件体带 `action=APPLY/APPROVE/REJECT`：建退款单 / 打款 / 驳回置失败） |
-| 路由键 | `pay.refund.success` | payment 发布，order 订阅（退款到账：5 退款中 → 6 已退款） |
-| 路由键 | `order.refunded` | order 发布，inventory 订阅（退货入库，回补可用库存，写 `change_type=6`） |
-| Queue | `q.pay.refund.request` | 支付侧消费退款指令（单队列，按 `action` 分派） |
-| Queue | `q.order.refund.success` | 订单侧消费退款到账回执 |
-| Queue | `q.inventory.order.refunded` | 库存侧消费退货入库事件 |
-| Queue | `q.inventory.order.created` | 库存侧消费下单事件 |
-| Queue | `q.inventory.order.canceled` | 库存侧消费订单取消事件（释放锁定库存） |
-| Queue | `q.pay.order.canceled` | 支付侧消费订单取消事件（关闭未付支付单） |
-| Queue | `q.order.deducted` / `q.order.deduct.failed` | 订单侧消费扣减回执 |
-| Queue | `q.order.pay.success` | 订单侧消费支付成功回执 |
-| TopicExchange | `mall.order.delay.exchange` | 支付超时延迟（order 侧），per-message TTL 到点死信回主交换机 |
-| 路由键 | `delay.order.timeout` / `order.timeout` | 延迟标记发往持有队列的路由键 / TTL 到点死信回主交换机的路由键 |
-| Queue | `q.delay.order.timeout` | 无消费者持有队列（TTL 到期死信到主交换机触发超时取消） |
-| Queue | `q.order.timeout` | order 消费延迟超时标记（走统一取消漏斗） |
-| TopicExchange | `mall.order.dlx` | 统一死信交换机（order/inventory/payment 各声明同名） |
-| Queue | `q.order.dlq` / `q.inventory.dlq` / `q.pay.dlq` | 各服务消费失败重试耗尽后的死信落点（绑定 DLX/`#`） |
-
-#### 3.1 事件可靠性设计（事务 outbox / 延迟消息 / DLQ）
-
-- **事务 outbox**：order 的 `order.created / order.canceled`、payment 的 `pay.success` 不再用
-  `TransactionSynchronization.afterCommit` 或「事务外立即发」，而是与业务状态变更**同一本地事务**写入
-  `outbox` 表（order/payment 库各一张），由各自 `@Scheduled(3s)` 的 relay 领取（`for update skip locked`）
-  并投递，成功后置 `status=1`。根治「订单已取消/已支付但事件没发出去」的非原子窗口。
-- **支付超时延迟消息**：下单事务内同时入箱一条「超时标记」，带 `delay_ms`（= 支付超时阈值）；
-  relay 发送时设 per-message `expiration` 发到延迟交换机 → 无消费者持有队列 → TTL 到点死信回主交换机
-  `order.timeout` → order 消费并走 `OrderCancelService.cancelByOrderNo` 统一取消漏斗（条件 0→4 +
-  同事务 outbox 发 `order.canceled`）。原 60s 定时扫表降频为 5 分钟**对账兜底**（防延迟消息丢失）。
-- **有界重试 + DLQ**：order/inventory/payment 各自声明 `rabbitListenerContainerFactory`（`maxRetries(2)` +
-  `RejectAndDontRequeueRecoverer`），瞬时异常重试 3 次后 `basicReject(requeue=false)` 落入本服务 DLQ，
-  不再无限 requeue。
-- **库存扣减消费**：移除「先 Redis SETNX 打标」；改为按商品 id 升序取 Redisson 锁后，在**单个 DB 事务**
-  内完成「条件扣库存 + 写 change_type=3 流水」，任一商品不足整单回滚；幂等以 `inventory_log`
-  （`order_id, product_id, change_type` 唯一键）为准——重投会跳过已锁商品并重发回执，
-  消除「处理中崩溃 → 重投被挡 → 订单悬挂」窗口。取消消费同理。
-
-### 4. 商家上架商品 → 初始化库存（user → product → inventory 三段）
-
-`POST /userToAddProduct`（user 服务，供商家端调用）：
-
-1. 取登录态 userId 写入商品（归属以登录态为准）；
-2. 调 product 服务 `/addNumProduct` 插入商品，**主键由 DB 自增回填并随响应返回**；
-3. 用回填的 `product.id` 调 inventory 服务 `/addNumInventory` 初始化一条 0 库存记录；
-4. 任一段失败即抛业务异常并中止，避免出现「商品建好了、库存却没建」的脏状态。
-
-> 归属只取登录态，请求体（`PublishProductRequest`）不含 `id / userId`；商品一经创建即处于上架状态（`status=1`，发布即上架）。
-
-### 5. 商品与分类
-
-- **商家管理（归属校验均带 `user_id`）**：上架 `/addNumProduct`（`uk_user_name(user_id,name)` 防重复上架）、部分更新 `/updateProduct`、上下架 `/shelfProduct`。
-- **买家浏览**：`/list` 关键词模糊 + 分类筛选 + 白名单排序（`price_asc/price_desc/newest`）+ 分页，只展示在售商品。
-- **分类**：支持多级分类；`/category/tree` 在内存中递归拼树并做了防环保护，管理接口会校验父分类存在、禁止把自己挂到自己下、同级同名拦截。新增/修改分类（`/category/add`、`/category/update`）已收紧为**仅管理员**可操作（`Auths.requireAdmin()`），买家浏览不受影响。
-
-### 6. 库存补货与流水
-
-商家给自有商品补货 `/restock`：先按 `product_id+user_id` 校验归属，再条件 `UPDATE` 增加 `total_stock/available_stock`，并写一条 `inventory_log`（`change_type=1` 入库）。所有库存变动都落流水，带变动前后快照，便于对账。
-
-### 7. 收货地址
-
-`user` 服务提供地址增删改查；删除 / 修改 / 详情均带 `id AND user_id` 归属条件，防止越权操作他人地址。
-
-### 8. 用户角色与后台管理
-
-系统区分两类角色（`user.role`，注册默认为普通用户）：
-
-| 值 | 角色 | 说明 |
-| ---- | ---- | ---- |
-| 1 | 普通用户 | 注册即得；下单、收货地址；作为商家可上架商品、补货、管理店铺订单 |
-| 2 | 管理员 | 内部后台账号；可跨用户/商品/订单/库存做管理操作，可对任意商品上/下架 |
-
-角色贯穿鉴权链路：
-
-1. 登录时 user 服务把 `role` 写入 JWT `claims`（**旧 token 无 role 一律按普通用户处理**，向下兼容）；
-2. 网关 `AuthGlobalFilter` 剥离入站伪造的 `X-User-Role` 头并注入真实值；
-3. 下游各服务经 `mall-common.Auths` 读取身份做 `requireLogin()` / `requireAdmin()`，角色不符抛业务异常（`X-User-Role` 也随 Feign 透传）。
-
-**管理员接口**（均需 `role=2`，网关前缀后路径）：
-
-| 服务(前缀) | 接口 | 说明 |
-| ---- | ---- | ---- |
-| /user | `GET /admin/listUsers?page&size&keyword` | 分页查用户（用户名/邮箱/手机号过滤） |
-| /user | `PUT /admin/updateUser` | 改状态/角色/邮箱/手机号；禁用或降级即删其 Redis token 强制下线；不允许改自己（防自锁） |
-| /user | `PATCH /admin/resetPwd` | 重置密码并使其下线 |
-| /product | `GET /admin/listAll?page&size&keyword` | 查看全部商品（含下架，联表带卖家名） |
-| /product | `PUT /admin/shelf?id&status` | 对任意商品上/下架 |
-| /order | `GET /admin/findAllOrder?status` | 按订单状态查全部订单 |
-| /order | `GET /admin/findDetailOrder?id` · `GET /admin/findOrderItems?orderId` | 订单详情 / 明细（联表带买家名） |
-| /inventory | `GET /admin/listAll?productId` | 查库存（联表带商品名/卖家名） |
-
-> **账号禁用**：管理员把用户 `status` 置 0 即禁用，该账号此后登录被拒（"该账号已被禁用，请联系管理员"），已登录会话因 token 被删而立即失效。
->
-> **管理员初始化**：user 服务启动时自动为旧库 `user` 表补齐 `role` 列，并在库中不存在管理员（`role=2`）时按 `mall.admin.username/password`（默认 `admin/admin123`，见 user 服务 `application.yml`）自动创建管理员账号。
-
-### 9. 订单取消：买家手动 / 商家整单
-
-除支付超时自动取消外，待付款订单还支持以下取消入口，三者统一发布 `order.canceled`（有事务时 `afterCommit` 后再发）→ inventory 释放锁定库存、payment 关闭未付支付单：
-
-- **买家取消** `POST /order/cancel?id`：仅能取消**本人**且处于**待付款**的订单；`user_id AND order_status=0` 条件更新，与支付并发天然互斥，谁先提交谁生效。
-- **商家查看** `GET /order/seller/orders`：返回含自己商品的订单及本人那份明细，并标记 `cancellable`（待付款 **且** 不含其它卖家商品）。
-- **商家整单取消** `POST /order/seller/cancel?id`：订单须含自己的商品且**不含他人商品**（混单不可整单取消），仅待付款可取消。
-
-### 10. 前端工程（mall-web / mall-admin）
-
-仓库根目录另含两个 Vue 前端工程（不参与 Maven 构建），开发时均经 Vite 代理到网关 9999：
-
-- `mall-web`：买家/卖家端 —— 注册登录、商品浏览、**购物车**、下单/支付、我的订单（**含退款申请与进度**）、
-  商家中心（店铺商品 / 卖家订单 /**退款审核**）与收货地址管理等；
-- `mall-admin`：管理后台 —— 用户管理、商品管理、订单管理、库存查询、分类管理、**退款审核**
-  （对接各服务 `/admin/*` 接口，鉴权要求管理员角色）。
-
-## 接口速览
-
-| 服务(网关前缀) | 方法与路径 | 说明 |
-| ---- | ---- | ---- |
-| /user | POST /login | 登录，返回 token |
-| /user | POST /register | 注册 |
-| /user | GET /userInfo | 当前用户资料 |
-| /user | PUT /update · PATCH /updateAvatar · PATCH /updatePwd | 更新资料/头像/密码 |
-| /user | DELETE /delete | 注销当前用户 |
-| /user | POST /addReceiverDetail · POST /addUserAddress | 新增收货地址 |
-| /user | POST /updateUserAddressById?id= · DELETE /deleteUserAddress?id= | 改/删地址 |
-| /user | GET /selectUserAddress · GET /selectUserDetailAddress?id= | 查地址 |
-| /user | POST /userToAddProduct | 商家一键上架商品并初始化库存 |
-| /user | GET /admin/listUsers?page&size&keyword · PUT /admin/updateUser · PATCH /admin/resetPwd | 后台用户管理（仅管理员） |
-| /product | GET /list | 买家分页浏览（关键词/分类/排序） |
-| /product | GET /findProductById?id= | 按 id 查商品（供下单快照） |
-| /product | GET /findProductByUserId?start&size | 商家查看自己发布的商品（含已下架），返回 `{ total, items }`，`start` 为页码 |
-| /product | GET /findProductByUserName | 按卖家用户名查其在售商品 |
-| /product | POST /addNumProduct · PUT /updateProduct · PUT /shelfProduct | 商家商品管理 |
-| /product | GET /admin/listAll?page&size&keyword · PUT /admin/shelf?id&status | 后台商品管理（仅管理员） |
-| /product | GET /cart/list · /cart/count | 购物车查看 / 角标数 |
-| /product | POST /cart/add · /cart/update · /cart/remove · /cart/removeItems · DELETE /cart/clear | 购物车增删改（`quantity<=0` 即移除） |
-| /product | GET /category/list · /category/tree | 分类浏览 |
-| /product | POST /category/add · PUT /category/update | 分类管理（仅管理员） |
-| /order | POST /createOrder | 下单（发 order.created 事件） |
-| /order | GET /findAllOrder · GET /findDetailOrder?id= | 查我的订单 |
-| /order | POST /cancel?id | 买家手动取消本人待付款订单 |
-| /order | GET /seller/orders · POST /seller/cancel?id | 商家查看 / 整单取消含自己商品的订单 |
-| /order | POST /seller/ship | 商家发货（自有商品所属订单，写 shipping 发货单；最后一卖后整单 1→2） |
-| /order | POST /receive?id | 买家确认收货（待收货 → 已完成） |
-| /order | GET /shippings?orderId | 买家查看订单物流发货单列表 |
-| /order | POST /refund/apply · GET /refund/detail?orderId · GET /refund/list | 买家申请退款 / 查看退款进度 / 我的退款单 |
-| /order | GET /seller/refunds · POST /seller/refund/audit | 商家查看待审退款 / 审核（仅整单属于自己的订单） |
-| /order | GET /admin/findAllOrder?status · GET /admin/findDetailOrder?id · GET /admin/findOrderItems?orderId | 后台订单查询（仅管理员） |
-| /order | GET /admin/refunds?status · POST /admin/refund/audit | 后台退款审核（仅管理员，混单只能由管理员审） |
-| /inventory | POST /addNumInventory · POST /restock?productId&qty | 初始化库存 / 补货 |
-| /inventory | GET /admin/listAll?productId | 后台库存查询（仅管理员） |
-| /pay | POST /create | 创建支付单并返回渠道收银台参数（支付宝表单/微信 code_url） |
-| /pay | POST /mock/success | 模拟支付成功（测试钩子，受 `payment.mock.enabled` 开关控制，仓库默认已置 true） |
-| /pay | POST /alipay/notify · POST /wx/notify | 微信/支付宝异步回调（网关白名单，无登录态） |
-
-> 网关按 `/user/**` `/product/**` `/order/**` `/inventory/**` `/pay/**` 前缀路由并 `StripPrefix=1`，上表路径是各服务 StripPrefix 之后的本服务路径。
+> 下游业务服务自身**不做 JWT 鉴权**，只信任网关注入的身份头（网关会先剥离入站同名伪造头再注入）。
+> 因此**服务端口不要暴露到公网**。详见 [docs/auth.md](docs/auth.md)。
 
 ## 快速启动
 
 前置依赖：JDK 21、Maven、MySQL、Redis、RabbitMQ、Nacos。
 
-> **自「退款 / 购物车」起的存量迁移**：
-> - order 库需执行 `order.sql` 尾部的 `CREATE TABLE order_refund`（退款申请单）。
-> - 全部 5 个库里的 `undo_log` 表已从建表脚本中删除（Seata 早已移除，该表是残留死表）；
->   存量库可自行 `DROP TABLE undo_log`。
-> - RabbitMQ 侧新增 `refund.request` / `pay.refund.success` / `order.refunded` 三个队列，
->   由各服务 `RabbitConfig` 自动声明，无需手工操作。
-> - 购物车用 Redis，不需要建表；但各业务服务需能连到 Redis（配置在 Nacos `common.yaml`）。
+### ⚠️ 第 0 步：在 Nacos 里手建配置（最容易卡住的地方）
 
-> **自「事件可靠性加固」起的存量迁移**：
-> - order/payment 库需手动补 `outbox` 建表 DDL（见 `order.sql` / `payment.sql` 尾部）；inventory 库需执行
->   `ALTER TABLE inventory_log ADD UNIQUE KEY uk_order_product_type (order_id, product_id, change_type)`
->   （若历史数据有同订单同商品同类型重复流水，先清理再执行）。
-> - RabbitMQ 侧新增延迟交换机/持有队列/死信交换机/各 DLQ，且原入站队列现在带
->   `x-dead-letter-exchange=mall.order.dlx` 参数——**已存在的同名旧队列与旧参数不符会导致 406
->   PRECONDITION_FAILED**，本地演示建议清空 Rabbit 数据或换一个 vhost 后重启各服务（队列由各服务 RabbitConfig 自动声明）。
+**仓库里不含任何 Nacos 配置**——没有 `common.yaml`、也没有 `datasource.yaml`。
+5 个业务服务各自通过 `spring.config.import` 从 Nacos 拉这两份配置
+（namespace **`dev`**，group 为**服务名**），所以在手动创建它们之前，服务**启动不起来**：
 
-1. **初始化数据库**：新建各业务库，执行对应模块 `src/main/resources` 下的建表脚本（如 `User.sql`、`Product.sql`、`order.sql`、`inventory.sql`、`payment.sql`）。
-2. **启动 Nacos** 并准备配置：各服务 `application.yml` 通过 `spring.config.import` 拉取 `nacos:common.yaml` / `nacos:datasource.yaml`（namespace `dev`、group 为服务名）。仓库内 `application-datasource.yml` 仅作本地参考兜底，实际数据源以 Nacos 配置为准。
-3. **编译并安装公共模块**（各服务依赖 `model` 与 `mall-common`，改动后需先安装）：
-   ```bash
-   mvn clean install -DskipTests
-   ```
-4. **依次启动服务**（运行各模块 `*Application` 主类即可）：
-   ```bash
-   mvn spring-boot:run
-   ```
-   建议顺序：model → mall-common → 各业务服务 → mall-gateway。网关启动后从 `POST http://localhost:9999/user/login` 走完整流程。
+- `common.yaml` — 至少要有 `server.port`，**它决定了服务的实际运行端口**；
+- `datasource.yaml` — 数据库连接（**每个服务的 url 必须指向自己的库**）+ Redis 连接。
 
-> JWT 密钥、MySQL/Rabbit 地址见各模块 `application*.yml`。生产环境请通过环境变量注入密钥，避免硬编码入库。
+RabbitMQ 连接不在这里，而在 order/inventory/payment 的本地 `application.yml`，用 `RABBITMQ_*` 环境变量覆盖。
+网关不读 Nacos 配置（只用它做服务发现）。
 
-## 关键设计与已知边界
+完整的键清单与可抄的模板见 [docs/getting-started.md](docs/getting-started.md#3-在-nacos-准备配置最容易卡住的一步)。
 
-- **超卖防护**：扣库存不依赖分布式锁的互斥，而是「条件 UPDATE（`available_stock>=qty`）」在数据库层保证原子，Redisson 锁用于串行化同一商品的竞争、降低无效 UPDATE（锁在 DB 事务之外按商品 id 升序先取好）。
-- **事件可靠性（outbox / 延迟消息 / DLQ / DB 幂等）**：order/payment 的对外事件均走**事务 outbox**（与业务同库同事务入 `outbox` 表，relay 定时投递）；支付超时改用**延迟消息**（per-message TTL + 死信回主交换机）并保留低频对账兜底；order/inventory/payment 消费端统一**有界重试(3) + DLQ**，库存扣减改为「单事务扣库存+流水」并以 `inventory_log`（order_id, product_id, change_type 唯一键）做幂等（移除先 SETNX）。详见 §3.1。
-- **主键类型**：表主键/外键为 `BIGINT`，Java 侧实体与身份信息统一使用 `Long`。
-- **错误提示**：业务失败抛 `BusinessException`，由 `model.GlobalExceptionHandler` 统一转为 `Result.error(友好文案)`，避免向前端泄露 SQL 等内部信息。
-- **支付为真实 SDK 结构 + 占位配置**：`mall-service-payment` 已引入支付宝（`alipay-sdk-java`）与微信（`wechatpay-java` APIv3）官方 SDK 结构，但商户号/AppID/证书密钥当前为**占位值**（见 payment `application.yml` 的 `payment.*` 段），故渠道回调收不到；本地演示调 `POST /pay/mock/success` 模拟支付成功即可（走与真实回调相同的幂等落库与 `pay.success` 事件）。
+### 第 1 步：准备中间件（两种方式二选一）
 
-  > `payment.mock.enabled` 在本仓 `application.yml` 中**默认已置 `true`**，方便开箱演示。
-  > 它同时开关**模拟支付**与**模拟退款打款**两处，且 `POST /pay/mock/success` 只校验支付单归属、
-  > 不校验真实资金——**部署到任何非本地环境前必须改回 `false`**（或用 Nacos `common.yaml` 覆盖）。
-- **支付超时自动取消**：主路径为下单时入箱的超时延迟消息（`order.pay-timeout-minutes` 默认 30 分钟，per-message TTL 到点死信触发），order 消费后经统一取消漏斗条件 0→4 并同事务 outbox 发 `order.canceled`（inventory 释放锁定、payment 关闭未付支付单）；另保留每 5 分钟的对账扫表兜底，防延迟消息丢失/宕机窗口。取消与支付同为 `order_status=0` 条件更新，谁先提交谁生效。
-- **发货/收货并发**：`/seller/ship` 与 `/receive` 事务内第一条语句对订单行 `select ... for update`，串行化同一订单的并发操作。下单时锁库存、支付、取消等已处理，故发货按「卖家是否已全部发货」聚合整单推进；混单（多卖家）必须各自都发货后整单才 `1 → 2待收货`，买家确认整单收货后 `→ 3已完成`。
-- **退款的已知边界**：只支持**整单全额**退款（不支持按明细部分退款，`refund_amount` 恒等于订单总额）；
-  未接渠道的**退款结果异步通知**，微信 `PROCESSING`（已受理未到账）在演示中直接视为成功并置终态；
-  渠道持续失败时退款单停在「退款中」、订单停在 `5退款中`，靠消息重试耗尽落 `q.pay.dlq` 等人工介入，
-  没有自动对账/补偿任务（支付侧的 5 分钟对账兜底只覆盖未付款超时，不覆盖退款）。
-- **已知未完成**：真正可用的分布式事务（Seata 依赖已移除，`@GlobalTransactional` 仅演示用后已清理）尚未实现。
-  发布侧发送未开 publisher-confirms（无法路由的消息静默丢失仍靠对账兜底）。
+**方式 A —— 本机已装好 MySQL / Redis / RabbitMQ / Nacos：直接用**，跳过本条。
+
+**方式 B —— 用仓库根的 `docker-compose.yml` 拉起四个中间件**：
+
+```bash
+# ⚠️ 别盲目 cp：这会无条件覆盖已存在的 .env。已有配好的 .env 就直接编辑它。
+cp .env.example .env
+# 然后**必须**填 MYSQL_PASSWORD —— 留空 compose 会直接中止，容器只被 Created、不会启动
+# 报错形如：required variable MYSQL_PASSWORD is missing a value
+docker compose up -d
+```
+
+> compose 默认把**宿主机端口错开**（MySQL `3307`、Redis `6380`、RabbitMQ `5673`/`15673`、
+> Nacos `8858`），以便与本机已装的中间件**并存而不抢端口**。要占标准端口，在 `.env` 里覆盖
+> `MYSQL_PORT` 等变量（此时须先停掉本机对应中间件）。
+> **注意**：业务服务是按标准端口连中间件的，所以端口错开时容器只是并存可用，
+> 服务连的仍是本机那套。
+>
+> MySQL 首次启动会自动执行各模块建表脚本；`initdb` **只在数据卷为空时执行一次**，
+> 改了 SQL 想重建先 `docker compose down -v`。
+
+### 第 2~5 步
+
+> 下面的命令**分 PowerShell 与 bash 两种写法**，别混用——`export` 是 bash 语法，
+> 在 PowerShell 里会报「无法将"export"项识别为 cmdlet」。
+
+**第 2 步：编译并安装公共模块**（各服务依赖 `model` 与 `mall-common`）
+
+仓库自带 **Maven Wrapper**，**不依赖 `mvn` 是否在 PATH 上**，推荐用它：
+
+```powershell
+# PowerShell
+.\mvnw.cmd clean install -DskipTests
+```
+
+```bash
+# bash
+./mvnw clean install -DskipTests
+```
+
+> 首次执行会按 `.mvn/wrapper/maven-wrapper.properties` 指定的版本（Maven 3.9.16）
+> 自动下载到 `~/.m2/wrapper/dists/`，之后走本地缓存。
+>
+> 想用本机装的 Maven 也行（`mvn clean install -DskipTests`），但**要求 `mvn` 在 PATH 上**。
+> 报「无法将"mvn"项识别为 cmdlet、函数、脚本文件或可运行程序」时：
+>
+> - 临时用完整路径：`& "E:\javase\apache-maven-3.9.16\bin\mvn.cmd" clean install -DskipTests`
+> - 或修 PATH 那条坏项。**常见错误写法是 `MAVEN_HOME%/bin`——`%` 只写了后半边**，
+>   必须写成 `%MAVEN_HOME%\bin`。只写 `MAVEN_HOME%\bin` 会被当成一个字面目录名，
+>   永远解析不出实际路径，症状正是「环境变量明明配了却找不到 mvn」。
+
+**第 3 步：设置 JWT 密钥**（gateway 与 user 必须用同一个值，≥32 字符；不设则这两个服务启动失败）
+
+```powershell
+# PowerShell：生成 32 字节随机密钥（不依赖 openssl）
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$bytes = New-Object byte[] 32
+$rng.GetBytes($bytes)
+$secret = [Convert]::ToBase64String($bytes)
+
+$env:JWT_SECRET = $secret          # 只对当前窗口生效；IDE 需在 Run Configuration 里配
+# setx JWT_SECRET "$secret"        # 永久写入用户级变量（base64 结尾的 = 必须加引号）
+```
+
+```bash
+# bash
+export JWT_SECRET="$(openssl rand -base64 32)"
+```
+
+> 在 IDE 里启动服务的话，环境变量要配在 **Run Configuration** 里，配完重启 IDE；
+> `setx` 写的持久变量对**已打开**的 IDE 窗口无效。详见
+> [docs/getting-started.md](docs/getting-started.md#6-设置-jwt_secret)。
+
+**第 4 步：依次启动各服务**
+
+运行各模块 `*Application` 主类（或在模块目录下 `mvn spring-boot:run`）。
+顺序：**各业务服务 → 最后 mall-gateway**。网关用 `lb://` 做服务发现，目标服务没注册上来路由会失败。
+
+> 验收：`POST http://localhost:9999/user/login` 能走通完整流程即算成功。
+> 各服务健康检查 `GET http://localhost:<端口>/actuator/health`，端口以上表为准。
+> 起不来时看 [docs/getting-started.md](docs/getting-started.md#10-排错) 的排错表。
+
+## 测试
+
+```bash
+mvn test
+```
+
+仓库**共 2 个测试**，都用来守「靠约定维持、重构时容易被静默破坏」的不变量：
+
+| 模块 | 测试 | 守住什么 |
+| ---- | ---- | ---- |
+| `mall-common` | `IdentityContextTest` | 身份写入 ThreadLocal 后**必须在请求结束被清除**（否则线程池复用会导致越权） |
+| `mall-service-inventory` | `InventoryMapperConcurrencyTest` | 并发扣库存**绝不超卖**；释放锁定不能凭空造出库存 |
+
+后者用 Testcontainers 起**真实 MySQL**，**需要本机 Docker 守护进程在运行**。
+详见 [docs/operations.md](docs/operations.md#测试)。
+
+## 可观测性
+
+各服务与网关均接入 actuator（端口即服务端口）：`GET /actuator/health`、`GET /actuator/metrics`。
+
+值得留意的是 `GET /actuator/metrics/mall.outbox.pending`（**outbox 待投递事件数**，仅 order / payment）：
+outbox 由 relay 定时投递，一旦 relay 停摆或持续投递失败，事件会静静堆在表里而**没有任何外部表征**
+（订单不推进、库存不释放），只能从业务现象倒推。各服务 DLQ 堆积在 RabbitMQ 管理台看。
+
+详见 [docs/operations.md](docs/operations.md#可观测性)。
+
+## 文档地图
+
+| 文档 | 讲什么 | 什么时候读 |
+| ---- | ---- | ---- |
+| [architecture.md](docs/architecture.md) | 模块职责与边界、**端口从哪来**、网关路由与白名单、前端工程、依赖版本 | 想改代码结构 / 端口对不上时 |
+| [auth.md](docs/auth.md) | 登录链路、JWT + Redis 单设备登录、身份头契约、角色模型与管理员初始化 | 加接口要做鉴权时 |
+| [order-lifecycle.md](docs/order-lifecycle.md) | 订单状态机全景：正向链路、取消三个入口、退款逆向分支 | 改订单流程时 |
+| [events.md](docs/events.md) | RabbitMQ 拓扑全表、事务 outbox、延迟消息、有界重试 + DLQ、幂等键 | 加事件 / 消息堆积时 |
+| [domains.md](docs/domains.md) | 购物车、商家上架三段式、商品与分类、库存补货与流水、收货地址 | 改业务域时 |
+| [api.md](docs/api.md) | 全量接口表（按服务分节）、StripPrefix 规则、鉴权白名单 | 查接口时 |
+| [getting-started.md](docs/getting-started.md) | 完整启动步骤、Nacos 配置清单、存量迁移、排错表 | 跑不起来时 |
+| [operations.md](docs/operations.md) | 测试、可观测性、关键设计与已知边界 | 上生产 / 排查时 |
+
+> 密钥、数据源、MQ 地址一律由**环境变量或 Nacos** 提供，仓库内不再保留任何**真实**凭据
+> （支付商户参数与默认管理员口令都是文档化的占位值，**部署前必须更换**）。

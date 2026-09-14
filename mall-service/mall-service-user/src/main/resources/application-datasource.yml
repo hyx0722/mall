@@ -1,11 +1,12 @@
-#已经在nacos中配置
+# 已在 nacos 中配置，本文件仅作本地参考兜底
+# 凭据不入库：用户名/密码由 MYSQL_USERNAME / MYSQL_PASSWORD 环境变量注入
 spring:
   datasource:
     type: com.alibaba.druid.pool.DruidDataSource
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/mall_service_user?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
-    username: root
-    password: Hyx20070722@
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:Hyx20070722@}
   data:
     redis:
       host: 127.0.0.1

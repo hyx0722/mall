@@ -14,10 +14,10 @@ spring:
         username: nacos
         password: nacos
   rabbitmq:
-    host: localhost
-    port: 5672
-    username: guest
-    password: guest
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
 
 server:
   port: 9005
@@ -42,6 +42,12 @@ payment:
     private-key-path: classpath:apiclient_key.pem   # 占位：商户 API 私钥（apiclient_key.pem）
     merchant-serial-no: YOUR_SERIAL_NO     # 占位：商户证书序列号
     notify-url: http://localhost:9999/pay/wx/notify
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
 ---
 spring:
   config:

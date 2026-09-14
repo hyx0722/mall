@@ -1,6 +1,7 @@
 package com.product.controller;
 
 
+import com.mall.common.web.Auths;
 import com.model.bean.Product;
 import com.model.bean.Result;
 import com.model.util.ThreadLocalUtil;
@@ -29,8 +30,12 @@ public class ProductFeinController {
 
     //商家上架商品：同 user_id+name 重复上架显式报错；唯一键在并发下兜底。
     //insert 后主键已回填，返回带 id 的实体，供“建商品->初始化库存”链路复用
+    //归属只认登录态：请求体里的 userId 一律被覆盖（Product.userId 上的 @NotNull 仅为历史契约，
+    //不再作为归属依据），否则直接调本接口即可冒名为他人建商品。
     @PostMapping("/addNumProduct")
     public Result<Product> addNumProduct(@RequestBody @Validated Product product){
+        Auths.requireLogin();
+        product.setUserId(Auths.currentUserId());   // 覆盖请求体，归属以调用者登录态为准
         if (productFeinService.findNumProductByUserIdAndName(product.getUserId(), product.getName()) != null){
             return Result.error("该商品已存在，请在已有商品页面修改");
         }

@@ -25,6 +25,9 @@ import java.sql.Statement;
 @Component
 public class UserStartupSetup implements ApplicationRunner {
 
+    /** 默认弱口令：仅用于本地演示。作为 @Value 的兜底值，命中时启动日志会显式告警。 */
+    private static final String DEFAULT_ADMIN_PASSWORD = "admin123";
+
     @Autowired
     private DataSource dataSource;
     @Autowired
@@ -32,7 +35,8 @@ public class UserStartupSetup implements ApplicationRunner {
 
     @Value("${mall.admin.username:admin}")
     private String adminUsername;
-    @Value("${mall.admin.password:admin123}")
+    // 复用常量而非再写一遍字面量，避免兜底值与告警判断悄悄漂移
+    @Value("${mall.admin.password:" + DEFAULT_ADMIN_PASSWORD + "}")
     private String adminPassword;
 
     @Override
@@ -62,9 +66,14 @@ public class UserStartupSetup implements ApplicationRunner {
             if (adminUsername == null || adminUsername.isBlank()) {
                 return;
             }
-            String pwd = (adminPassword == null || adminPassword.isBlank()) ? "admin123" : adminPassword;
+            String pwd = (adminPassword == null || adminPassword.isBlank()) ? DEFAULT_ADMIN_PASSWORD : adminPassword;
             userAdminService.seedAdmin(adminUsername, pwd);
-            log.info("[user] 已初始化管理员账号 username={} password={}（建议登录后台后修改密码）", adminUsername, pwd);
+            // 不打印密码（启动日志常被采集/留存）：仅在仍为默认弱口令时告警，否则只记账号
+            if (DEFAULT_ADMIN_PASSWORD.equals(pwd)) {
+                log.warn("[user] 已初始化管理员账号 username={}，当前为默认弱口令，请立即登录后台修改密码", adminUsername);
+            } else {
+                log.info("[user] 已初始化管理员账号 username={}", adminUsername);
+            }
         } catch (Exception e) {
             log.warn("[user] 初始化管理员失败（忽略）: {}", e.getMessage());
         }

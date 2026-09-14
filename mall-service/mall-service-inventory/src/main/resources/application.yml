@@ -14,13 +14,19 @@ spring:
         username: nacos
         password: nacos
   rabbitmq:
-    host: localhost
-    port: 5672
-    username: guest
-    password: guest
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
 
 server:
   port: 9004
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
 ---
 spring:
   config:

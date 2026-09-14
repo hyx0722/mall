@@ -33,10 +33,31 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <!-- 健康检查与运行指标（/actuator/health、/actuator/metrics） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
         <!-- 测试 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+            Testcontainers：用真实 MySQL 验证「依赖数据库语义」的不变量
+            （如条件 UPDATE 的并发不超卖——用 H2 之类的内存库验证没有意义）。
+            版本由父 pom 导入的 testcontainers-bom 管理；2.x 起坐标为 testcontainers-* 前缀。
+            需要本机 Docker 守护进程处于运行状态。
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-mysql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
         <!-- 数据库 -->
