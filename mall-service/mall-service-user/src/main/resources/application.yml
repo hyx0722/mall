@@ -13,6 +13,13 @@ spring:
         namespace: dev
         username: nacos
         password: nacos
+  # 退券消费 order.canceled / order.refunded 用（只消费不发布，故无 outbox）。
+  # 与 order/inventory/payment 一样，RabbitMQ 连接来自本地 yml、不由 Nacos 提供。
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
 
 
 

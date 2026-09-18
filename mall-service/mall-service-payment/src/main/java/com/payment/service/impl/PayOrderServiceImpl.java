@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -67,7 +68,7 @@ public class PayOrderServiceImpl implements PayOrderService {
             payOrder.setPayNo(genPayNo(userId, method));
             payOrder.setOrderId(order.getId());
             payOrder.setUserId(userId);
-            payOrder.setPayAmount(order.getTotalAmount());
+            payOrder.setPayAmount(payableAmount(order));
             payOrder.setPaymentMethod(method);
             payOrder.setExpireTime(LocalDateTime.now().plusMinutes(30));
             payOrderMapper.insertPayOrder(payOrder);
@@ -79,6 +80,20 @@ public class PayOrderServiceImpl implements PayOrderService {
         vo.setPayOrder(payOrder);
         vo.setPayParams(channel.createPay(payOrder));
         return vo;
+    }
+
+    /**
+     * 实付金额 = 订单原价合计 − 优惠抵扣。
+     *
+     * 必须在这里扣掉 {@code discount_amount}：{@code orders.total_amount} 记的是**原价合计**，
+     * 直接拿它当支付金额会让优惠券只体现在订单展示上、钱却照原价收——订单历史看着是对的，
+     * 只有对账时才会发现多收了钱。
+     */
+    private BigDecimal payableAmount(Order order) {
+        BigDecimal total = order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount();
+        BigDecimal discount = order.getDiscountAmount() == null ? BigDecimal.ZERO : order.getDiscountAmount();
+        BigDecimal payable = total.subtract(discount);
+        return payable.signum() < 0 ? BigDecimal.ZERO : payable;
     }
 
     @Override

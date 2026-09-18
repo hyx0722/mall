@@ -31,7 +31,7 @@ mall
 │                              #   事务 outbox 实现、outbox 指标
 ├── mall-gateway               # 网关：路由转发 + JWT 鉴权 + 注入用户身份头
 ├── mall-service               # 业务服务聚合模块
-│   ├── mall-service-user      # 用户 / 收货地址 / 商家上架商品入口
+│   ├── mall-service-user      # 用户 / 收货地址 / 商家上架商品入口 / 优惠券
 │   ├── mall-service-product   # 商品 / 分类 / 购物车
 │   ├── mall-service-order     # 订单（下单 + 取消 / 发货 / 收货 / 退款）
 │   ├── mall-service-inventory # 库存（MQ 消费扣减 + 补货 + 流水）
@@ -171,12 +171,16 @@ export JWT_SECRET="$(openssl rand -base64 32)"
 mvn test
 ```
 
-仓库**共 3 个测试**，都用来守「靠约定维持、重构时容易被静默破坏」的不变量：
+仓库**共 7 个测试**，都用来守「靠约定维持、重构时容易被静默破坏」的不变量：
 
 | 模块 | 测试 | 守住什么 |
 | ---- | ---- | ---- |
 | `mall-common` | `IdentityContextTest` | 身份写入 ThreadLocal 后**必须在请求结束被清除**（否则线程池复用会导致越权） |
 | `mall-common` | `OutboxConfigTest` | outbox 装配出正确的事务代理（否则 `enqueueNewTx` 的 `REQUIRES_NEW` 静默失效、丢事件） |
+| `mall-common` | `OutboxConfirmInstallerTest` | 发布确认回调按行号正确路由；退回回调**必须靠 `messageId` 反查**（`ReturnsCallback` 拿不到 `CorrelationData`） |
+| `mall-service-user` | `CouponServiceImplTest` | 优惠券抵扣计算：未达门槛不可用、**抵扣不超过商品金额（不倒找钱）**、折扣舍入到分、封顶生效、范围匹配只计命中行；以及券面文案不得出现 `1E+2` 这类科学计数法（`stripTrailingZeros` 的陷阱） |
+| `mall-service-user` | `CouponPreviewRequestValidationTest` | `CouponPreviewRequest` 不带 `userCouponId` 时必须通过校验（`/coupon/usable` 就这么调），且嵌套的 `Line` 约束确实生效（`@Valid` 不能漏） |
+| `mall-service-order` | `DiscountAllocatorTest` | 整单优惠按行占比分摊后 **Σ分摊恰好等于整单优惠**（尾差归末行）；单行分摊不超过该行小计；整单为 0 时不除零 |
 | `mall-service-inventory` | `InventoryMapperConcurrencyTest` | 并发扣库存**绝不超卖**；释放锁定不能凭空造出库存 |
 
 最后一个用 Testcontainers 起**真实 MySQL**，**需要本机 Docker 守护进程在运行**（前两个不需要）。
@@ -188,7 +192,10 @@ mvn test
 
 值得留意的是 `GET /actuator/metrics/mall.outbox.pending`（**outbox 待投递事件数**，order / payment / inventory）：
 outbox 由 relay 定时投递，一旦 relay 停摆或持续投递失败，事件会静静堆在表里而**没有任何外部表征**
-（订单不推进、库存不释放），只能从业务现象倒推。各服务 DLQ 堆积在 RabbitMQ 管理台看。
+（订单不推进、库存不释放），只能从业务现象倒推。
+
+还有 `mall.outbox.unroutable`（**无法路由而被退回的消息数**）：发布侧已开 publisher-confirms + returns，
+消息到不了任何队列时不再静默丢失，而是计数告警并可重投。各服务 DLQ 堆积在 RabbitMQ 管理台看。
 
 详见 [docs/operations.md](docs/operations.md#可观测性)。
 

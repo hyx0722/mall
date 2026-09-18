@@ -22,6 +22,11 @@
 | Queue | `q.pay.refund.request` | 支付侧消费退款指令（单队列，按 `action` 分派） |
 | Queue | `q.order.refund.success` | 订单侧消费退款到账回执 |
 | Queue | `q.inventory.order.refunded` | 库存侧消费退货入库事件 |
+| Queue | `q.user.order.canceled` | 用户侧消费订单取消（退券） |
+| Queue | `q.user.order.refunded` | 用户侧消费订单已退款（退券） |
+| Queue | `q.user.dlq` | 用户侧死信落点 |
+| 路由键 | `order.completed` | order 发布，**order 自身**消费（买家确认收货后生成商家结算明细） |
+| Queue | `q.order.completed` | 订单侧消费订单已完成（结算） |
 | Queue | `q.inventory.order.created` | 库存侧消费下单事件 |
 | Queue | `q.inventory.order.canceled` | 库存侧消费订单取消事件（释放锁定库存） |
 | Queue | `q.pay.order.canceled` | 支付侧消费订单取消事件（关闭未付支付单） |
@@ -55,8 +60,32 @@ order 的 `order.created / order.canceled`、payment 的 `pay.success`、invento
   `@EnableScheduling`**——漏掉没有编译期信号，只表现为事件静静堆在表里。
 
 > 装配与事务代理由 `mall-common` 的 `OutboxConfigTest` 守住（不需要数据库）：
-> 它验证 `OutboxConfig` 确实导出两个 bean，且 `OutboxService` 是事务代理——
+> 它验证 `OutboxConfig` 导出了 `OutboxService` 与 relay 任务两个 bean，且 `OutboxService` 是事务代理——
 > 后者是 `enqueueNewTx` 的 `REQUIRES_NEW` 能否生效的前提。
+> 发布确认回调的路由由 `OutboxConfirmInstallerTest` 守住，见下。
+
+#### 发布确认：relay 怎么知道消息真的送到了
+
+relay 用三参 `rabbitTemplate.send()` 时（无 `CorrelationData`、无 `mandatory`），
+「消息到了交换机但没有任何队列可路由」会让 send 正常返回、relay 的 try/catch 不命中——
+事件**静默丢失**。现在补上了发布确认，落点全在 `OutboxServiceImpl.send()` 这一个（也是唯一一个）投递出口：
+
+- `publisher-confirm-type: correlated` 让 broker 的接收确认带上 `CorrelationData`（存 outbox 行 id）；
+- `publisher-returns` + `template.mandatory` 让**无法路由**的消息被退回而不是丢弃。
+
+两种失败的处理**刻意不同**（理由详见 `OutboxServiceImpl` 类注释）：
+
+| 失败形态 | 处理 | 为什么 |
+| ---- | ---- | ---- |
+| 发送抛异常（连不上 broker）/ nack | 累加 `retry_count`，**保持待发送、无限重试** | 通常是暂时故障；加上限会让一次 broker 重启就永久丢事件 |
+| 消息被退回（无法路由） | 累加计数，超 20 次置 `status=3 已放弃` + 计入 `mall.outbox.unroutable` | 路由配置错误，重试永远不会成功 |
+
+> `ConfirmCallback` 拿得到 `CorrelationData`，但 `ReturnsCallback` **拿不到**——
+> 后者只能从被退回消息的 `MessageProperties.messageId` 反查行号（两个 id 都写的是同一个 outbox 行 id）。
+> 这处不对称极易被「简化」掉且**只在无法路由这条罕见路径上暴露**，故专门有测试守住。
+
+> 开着确认时 relay **不再乐观置已发送**，改由 ack 回调推进；若某环境摘了确认配置，
+> 会回落到乐观标记（否则该行没有任何回调推进，会被每 3s 无限重投）。
 
 这根治了「订单已取消/已支付但事件没发出去」的非原子窗口——业务落库与事件入箱要么一起成功，
 要么一起回滚。outbox 表存在于 **order / payment / inventory** 三库，

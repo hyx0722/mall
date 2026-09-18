@@ -64,7 +64,7 @@ CREATE TABLE `outbox` (
                            `exchange`     VARCHAR(100)    NOT NULL COMMENT '目标交换机',
                            `routing_key`  VARCHAR(100)    NOT NULL COMMENT '目标路由键',
                            `payload`      TEXT            NOT NULL COMMENT '事件 JSON 原文',
-                           `status`       TINYINT         NOT NULL DEFAULT 0 COMMENT '状态：0-待发送 1-已发送',
+                           `status`       TINYINT         NOT NULL DEFAULT 0 COMMENT '状态：0-待发送 1-已发送 3-已放弃(无法路由超限，需人工介入)',
                            `retry_count`  INT             NOT NULL DEFAULT 0 COMMENT '投递失败重试次数',
                            `delay_ms`     BIGINT          DEFAULT NULL COMMENT '非空则走延迟交换机并附加 per-message TTL(毫秒)',
                            `created_time` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',

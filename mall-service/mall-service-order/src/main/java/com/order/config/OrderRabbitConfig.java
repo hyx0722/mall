@@ -49,6 +49,9 @@ public class OrderRabbitConfig {
 
     public static final String RK_REFUND_REQUEST = RabbitTopology.RK_REFUND_REQUEST;
     public static final String RK_PAY_REFUND_SUCCESS = RabbitTopology.RK_PAY_REFUND_SUCCESS;
+    /** order 发布：订单已完成（买家确认收货）。消费者是 order 自己（结算），故队列也在本配置里声明 */
+    public static final String RK_ORDER_COMPLETED = RabbitTopology.RK_ORDER_COMPLETED;
+    public static final String Q_ORDER_COMPLETED = RabbitTopology.Q_ORDER_COMPLETED;
     public static final String RK_ORDER_REFUNDED = RabbitTopology.RK_ORDER_REFUNDED;
     public static final String Q_ORDER_REFUND_SUCCESS = RabbitTopology.Q_ORDER_REFUND_SUCCESS;
 
@@ -121,6 +124,19 @@ public class OrderRabbitConfig {
     @Bean
     public Binding bindRefundSuccess() {
         return BindingBuilder.bind(refundSuccessQueue()).to(orderExchange()).with(RK_PAY_REFUND_SUCCESS);
+    }
+
+    // 订单已完成：本服务自己消费生成结算明细。
+    // 声明入站队列的规则是「消费者声明」，这里发布方与消费方都是 order，所以队列落在本配置里；
+    // 日后若通知中心等也要订阅 order.completed，由那个服务自己声明自己的队列，改不到这里。
+    @Bean
+    public Queue orderCompletedQueue() {
+        return withDlqArgs(Q_ORDER_COMPLETED);
+    }
+
+    @Bean
+    public Binding bindOrderCompleted() {
+        return BindingBuilder.bind(orderCompletedQueue()).to(orderExchange()).with(RK_ORDER_COMPLETED);
     }
 
     // ---------- 支付超时延迟消息 ----------

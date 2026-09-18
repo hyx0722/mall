@@ -47,6 +47,23 @@ public class InventoryFeignServiceImpl implements InventoryFeignService {
 
     @Override
     @Transactional
+    public void updateWarnThreshold(Long userId, Long productId, Integer threshold) {
+        if (userId == null) {
+            throw new BusinessException("请先登录");
+        }
+        if (productId == null) {
+            throw new BusinessException("缺少商品 id");
+        }
+        if (threshold == null || threshold < 0) {
+            throw new BusinessException("预警阈值不能为负（填 0 表示关闭预警）");
+        }
+        // 条件 UPDATE 带 user_id：改不动别人商品的阈值，也无需先查再判断
+        if (inventoryFeignMapper.updateWarnThreshold(productId, userId, threshold) == 0) {
+            throw new BusinessException("库存不存在或无权操作");
+        }
+    }
+
+    @Override
     public void restock(Long userId, Long productId, Integer qty) {
         if (userId == null) {
             throw new BusinessException("请先登录");

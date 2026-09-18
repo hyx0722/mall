@@ -51,6 +51,14 @@ public class InventoryFeignController {
         return Result.success();
     }
 
+    //商家设置自有商品的库存预警阈值（0 表示关闭预警；归属以登录态 user_id 为准）
+    @PostMapping("/warnThreshold")
+    public Result warnThreshold(@RequestParam Long productId, @RequestParam Integer threshold) {
+        Auths.requireLogin();
+        inventoryFeignService.updateWarnThreshold(Auths.currentUserId(), productId, threshold);
+        return Result.success();
+    }
+
     //管理员：查询库存（可按商品 id 过滤）。经网关 /inventory/admin/listAll
     @GetMapping("/admin/listAll")
     public Result<List<Inventory>> listAll(@RequestParam(required = false) Long productId) {

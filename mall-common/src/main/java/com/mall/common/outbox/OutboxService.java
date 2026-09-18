@@ -32,4 +32,19 @@ public interface OutboxService {
 
     /** relay：领取待发送行并投递，成功后置已发送（有界循环，供 @Scheduled 任务调用） */
     void relayPending();
+
+    /*
+     * 以下三个方法由 OutboxConfirmInstaller 装到 RabbitTemplate 上的
+     * ConfirmCallback / ReturnsCallback 调用，业务代码**不要直接调**。
+     * 都按 outbox 行 id 定位，且都在单条 UPDATE 内完成，因此天然幂等、可重入。
+     */
+
+    /** 发布确认：broker 已确认接收 → 置已发送（仅当仍是待发送，重复 ack 无副作用） */
+    void markDelivered(Long id);
+
+    /** 发布确认：broker 拒绝(nack) → 累加重试计数并保持待发送（可能是暂时故障，故无限重试） */
+    void markRejected(Long id, String cause);
+
+    /** 消息被退回（mandatory 命中，交换机无队列可路由）→ 累加计数，超上限置「已放弃」 */
+    void markUnroutable(Long id, String cause);
 }

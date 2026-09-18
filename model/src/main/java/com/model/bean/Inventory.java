@@ -32,6 +32,17 @@ public class Inventory {
     private Integer availableStock;
     @TableField("sales_count")
     private Integer salesCount;
+
+    /**
+     * 库存预警阈值：{@code available_stock <= warnThreshold} 即告警；0 表示不预警。
+     * DDL 里带 {@code DEFAULT 0} 是硬要求——见 inventory.sql 的注释，否则并发测试会失败。
+     */
+    @TableField("warn_threshold")
+    private Integer warnThreshold;
+
+    /** 上次告警时间：冷却窗口用，避免每轮扫描都重复告警 */
+    @TableField("last_warn_time")
+    private LocalDateTime lastWarnTime;
     @TableField("version")
     private Integer version;
     @TableField("created_time")

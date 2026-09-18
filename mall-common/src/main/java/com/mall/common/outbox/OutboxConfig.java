@@ -1,7 +1,9 @@
 package com.mall.common.outbox;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -31,5 +33,20 @@ public class OutboxConfig {
     @Bean
     public OutboxRelayTask outboxRelayTask(OutboxService outboxService) {
         return new OutboxRelayTask(outboxService);
+    }
+
+    /**
+     * 发布确认回调的装配（附加到 Boot 自动配置的 RabbitTemplate 上，不替换它）。
+     *
+     * MeterRegistry 用 ObjectProvider 取：它由 actuator 提供，而本配置的守门测试
+     * （OutboxConfigTest）只用桩依赖、不起 actuator 自动配置——若改成直接注入，
+     * 那个测试会因找不到 MeterRegistry 而崩，指标也就反向绑死了装配的可用性。
+     * 取不到时降级为「只有日志、没有 mall.outbox.unroutable」。
+     */
+    @Bean
+    public OutboxConfirmInstaller outboxConfirmInstaller(
+            RabbitTemplate rabbitTemplate, OutboxService outboxService,
+            ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        return new OutboxConfirmInstaller(rabbitTemplate, outboxService, meterRegistryProvider);
     }
 }

@@ -6,6 +6,7 @@ import { getProductDetail } from '../api/product'
 import { listAddresses } from '../api/address'
 import { createOrder } from '../api/order'
 import { removeCartItems } from '../api/cart'
+import { usableCoupons } from '../api/coupon'
 import { money } from '../utils/format'
 
 const route = useRoute()
@@ -40,6 +41,31 @@ const selectedAddressId = ref(null)
 const remark = ref('')
 const submitting = ref(false)
 
+// 优惠券：coupons 由后端一次性评估本单的可用性与抵扣额（规则只在 user 服务实现一份）
+const coupons = ref([])
+const selectedCouponId = ref(null)
+
+// 传给后端的商品快照明细——categoryId 是「指定分类限定」券判定的依据
+const couponLines = computed(() =>
+  lines.value
+    .filter((l) => l.product)
+    .map((l) => ({
+      productId: l.productId,
+      categoryId: l.product.categoryId ?? null,
+      lineTotal: Number(l.product.price) * l.quantity,
+    })),
+)
+
+const selectedCoupon = computed(() =>
+  coupons.value.find((c) => c.userCouponId === selectedCouponId.value) || null,
+)
+
+// 抵扣额以**后端返回值**为准，前端不自己算券规则
+const discountAmount = computed(() => Number(selectedCoupon.value?.deduction || 0))
+
+// 实付 = 合计 - 抵扣（与后端 payment 侧的 payableAmount 同一口径）
+const payableAmount = computed(() => Math.max(0, totalAmount.value - discountAmount.value))
+
 const addressText = (a) =>
   [a.province, a.city, a.district, a.detailAddress].filter(Boolean).join(' ') ||
   '（地址不完整）'
@@ -69,11 +95,27 @@ async function load() {
     }))
     if (defaultAddress.value) selectedAddressId.value = defaultAddress.value.id
     else if (addresses.value.length) selectedAddressId.value = addresses.value[0].id
+    await loadCoupons()
   } catch {
     addresses.value = []
     lines.value = []
   } finally {
     loading.value = false
+  }
+}
+
+// 券列表失败不影响结算本身：拉不到就当没券可选
+async function loadCoupons() {
+  if (!couponLines.value.length) {
+    coupons.value = []
+    return
+  }
+  try {
+    coupons.value = (await usableCoupons(couponLines.value)) || []
+    // 默认不加券——抵扣多少由用户自己决定，不替用户做主
+    selectedCouponId.value = null
+  } catch {
+    coupons.value = []
   }
 }
 
@@ -95,6 +137,8 @@ async function submit() {
     const order = await createOrder({
       addressId: selectedAddressId.value,
       remark: remark.value || undefined,
+      // 券由后端校验并核销；抵扣额以后端试算结果为准
+      userCouponId: selectedCouponId.value || undefined,
       items: lines.value.map((l) => ({ productId: l.productId, quantity: l.quantity })),
     })
     if (order?.id) {
@@ -194,9 +238,48 @@ onMounted(load)
           />
         </el-card>
 
+        <el-card v-if="coupons.length" class="box" shadow="never">
+          <template #header>
+            <div class="hdr">
+              <span class="t">优惠券</span>
+              <el-button link type="primary" @click="router.push('/coupons')">
+                去领券中心
+              </el-button>
+            </div>
+          </template>
+          <el-radio-group v-model="selectedCouponId" class="coupon-group">
+            <el-radio :value="null" class="coupon-item">
+              <span class="c-name">不使用优惠券</span>
+            </el-radio>
+            <el-radio
+              v-for="c in coupons"
+              :key="c.userCouponId"
+              :value="c.userCouponId"
+              :disabled="!c.usable"
+              class="coupon-item"
+            >
+              <div class="c-line">
+                <span class="c-rule">{{ c.rule }}</span>
+                <span class="c-name">{{ c.name }}</span>
+                <!-- 不可用的券也列出来并说明原因，而不是让它凭空消失 -->
+                <span v-if="!c.usable" class="c-reason">{{ c.reason }}</span>
+                <span v-else class="c-save">可省 ¥{{ money(c.deduction) }}</span>
+              </div>
+            </el-radio>
+          </el-radio-group>
+        </el-card>
+
         <div class="footer">
           <div class="summary">
-            合计：<span class="amount">¥{{ money(totalAmount) }}</span>
+            <div>
+              合计：<span class="amount">¥{{ money(totalAmount) }}</span>
+            </div>
+            <template v-if="discountAmount > 0">
+              <div class="discount">优惠：-¥{{ money(discountAmount) }}</div>
+              <div>
+                实付：<span class="amount">¥{{ money(payableAmount) }}</span>
+              </div>
+            </template>
           </div>
           <el-button
             type="danger"
@@ -322,5 +405,48 @@ onMounted(load)
   font-size: 20px;
   font-weight: 700;
   color: #f56c6c;
+}
+.summary {
+  text-align: right;
+  line-height: 1.9;
+}
+.discount {
+  color: #67c23a;
+  font-size: 13px;
+}
+.coupon-group {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.coupon-item {
+  height: auto;
+  margin-right: 0;
+  padding: 10px 4px;
+  border-bottom: 1px solid #f0f2f5;
+  white-space: normal;
+}
+.coupon-item:last-child {
+  border-bottom: none;
+}
+.c-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.c-rule {
+  font-weight: 600;
+  color: #f56c6c;
+}
+.c-name {
+  color: #303133;
+}
+.c-reason {
+  font-size: 12px;
+  color: #909399;
+}
+.c-save {
+  font-size: 12px;
+  color: #67c23a;
 }
 </style>

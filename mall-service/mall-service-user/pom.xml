@@ -8,4 +8,17 @@
     </parent>
     <artifactId>mall-service-user</artifactId>
 
+    <dependencies>
+        <!--
+            RabbitMQ：本服务**只消费不发布**，故没有 outbox 表、不导入 OutboxConfig。
+            订阅 order.canceled / order.refunded 退券——与 inventory 释放锁定、
+            payment 关闭未付支付单是同一批事件，各绑各的队列。
+            mall-common 里的 amqp 是 optional（不传递），必须在这里显式声明。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+    </dependencies>
+
 </project>

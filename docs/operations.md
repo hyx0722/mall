@@ -10,13 +10,17 @@
 mvn test
 ```
 
-仓库**共 3 个测试**——数量少是刻意的：测试集中守几处「靠约定维持、重构时容易被静默破坏」的不变量，
+仓库**共 7 个测试**——数量少是刻意的：测试集中守几处「靠约定维持、重构时容易被静默破坏」的不变量，
 这类东西功能测试测不出来，只能专门守住。
 
 | 模块 | 测试 | 守住什么 |
 | ---- | ---- | ---- |
 | `mall-common` | `IdentityContextTest` | 身份写入 ThreadLocal 后**必须在请求结束被清除**。漏掉 `remove()` 时，线程池复用会让下一个请求继承上一个请求的身份，表现为随机、极难复现的越权 |
 | `mall-common` | `OutboxConfigTest` | `OutboxConfig` 确实导出 outbox 的两个 bean，且 `OutboxService` **是事务代理**——否则 `enqueueNewTx` 的 `REQUIRES_NEW` 不生效，扣减失败回执会随业务事务回滚 |
+| `mall-common` | `OutboxConfirmInstallerTest` | 发布确认回调按 `id` 正确路由到 `markDelivered` / `markRejected` / `markUnroutable`；**退回回调必须靠 `messageId` 反查行号**（`ReturnsCallback` 拿不到 `CorrelationData`），改用它就会静默失效；反查不到行号时不得抛异常（回调跑在 broker 连接线程上） |
+| `mall-service-user` | `CouponServiceImplTest` | 优惠券抵扣计算是**全仓唯一会算错钱**的地方，且错法都很安静：未达门槛仍抵扣、满减面额超过商品金额导致**倒找钱**、折扣的无限小数不 `setScale` 攒出分位差、范围限定把不参与的商品也算进门槛 |
+| `mall-service-user` | `CouponPreviewRequestValidationTest` | `CouponPreviewRequest` 被两个契约不同的接口共用：给它加上 `@NotNull` 会让「结算页拉可用券」整体失效，而前端吞掉异常后**只表现为券卡片永不出现**；同时守 `lines` 上的 `@Valid` 不能漏（漏了嵌套约束全是摆设） |
+| `mall-service-order` | `DiscountAllocatorTest` | 整单优惠按行占比分摊后 **Σ分摊恰好等于整单优惠**——各自四舍五入会攒出几分钱差，表现为「明细加起来 ≠ 订单总额」，结算与退款会各自差一笔且都不抛异常；另守单行分摊不超过该行小计（否则该行实付为负 = 倒找钱） |
 | `mall-service-inventory` | `InventoryMapperConcurrencyTest` | 并发扣库存**绝不超卖**（`where available_stock>=qty` 条件 UPDATE 的原子性），以及释放锁定不能凭空造出库存 |
 
 - `IdentityContextTest` 是纯 JUnit 5 + `MockHttpServletRequest`，**不需要 Spring 上下文，也不需要数据库**。
@@ -48,8 +52,9 @@ mvn test
 | 端点 | 说明 |
 | ---- | ---- |
 | `GET /actuator/health` | 健康检查 |
-| `GET /actuator/metrics` | 指标列表，含下面这条自定义业务指标 |
+| `GET /actuator/metrics` | 指标列表，含下面两条自定义业务指标 |
 | `GET /actuator/metrics/mall.outbox.pending` | **outbox 待投递事件数**（仅 order / payment / inventory） |
+| `GET /actuator/metrics/mall.outbox.unroutable` | **无法路由而被退回的 outbox 消息数**（Counter，同上三个服务）——持续增长说明路由键与队列绑定不匹配 |
 
 ### `mall.outbox.pending`
 
@@ -62,7 +67,7 @@ mvn test
 有了它就能直接观测并配阈值告警。各服务的 DLQ 堆积则在 RabbitMQ 管理台看。
 
 > 没有引入 `micrometer-registry-prometheus`，所以**没有** `/actuator/prometheus` 端点，
-> 只有 JSON 格式的 `/actuator/metrics`。`mall.outbox.pending` 也是全仓唯一一个自定义指标。
+> 只有 JSON 格式的 `/actuator/metrics`。全仓自定义指标就上面这两条。
 
 > ⚠️ **服务端口不要直接暴露到公网**——下游业务服务本身不做 JWT 鉴权，只信任网关注入的身份头。
 > actuator 也挂在同一个端口上。
@@ -128,8 +133,14 @@ order 消费后经统一取消漏斗条件 0→4 并同事务 outbox 发 `order.
 
 - 只支持**整单全额**退款，不支持按明细部分退款（`refund_amount` 恒等于订单总额）；
 - 未接渠道的**退款结果异步通知**，微信 `PROCESSING`（已受理未到账）在演示中直接视为成功并置终态；
-- 渠道持续失败时退款单停在「退款中」、订单停在 `5退款中`，靠消息重试耗尽落 `q.pay.dlq` 等人工介入，
-  **没有自动对账 / 补偿任务**（支付侧的 5 分钟对账兜底只覆盖未付款超时，不覆盖退款）。
+- 渠道持续失败时退款单停在「退款中」、订单停在 `5退款中`。**已有退款对账补偿**：
+  payment 的 `RefundReconcileTask` 每 5 分钟捞出「停在退款中超过 `payment.refund-reconcile-minutes`（默认 10 分钟）」
+  的单，重投与消息消费**完全相同**的 APPROVE 指令。
+  这件事成立的前提是渠道按 `refund_no`（= `out_request_no`/`out_refund_no`）幂等——**重复调用不会退两次钱**；
+  少了这条性质，该任务就是危险的而非补偿。
+  - 仍**未覆盖**的是「渠道已受理但迟迟不到账」的异步结果通知；演示中微信 `PROCESSING` 直接视为成功。
+  - 挂在退款上的自定义指标仍未加（只有 `mall.outbox.pending` / `mall.outbox.unroutable` 两条），
+    悬挂退款目前只能从 `RefundReconcileTask` 的 WARN 日志观测。
 
 ### 已知未完成
 
@@ -138,7 +149,17 @@ order 消费后经统一取消漏斗条件 0→4 并同事务 outbox 发 `order.
   **但清理并不彻底**：`mall-service/*/src/main/resources/` 下仍留有 **5 个 `file.conf`**，
   内容是 Seata 客户端配置（`default.grouplist=127.0.0.1:8091`），**无任何代码或配置引用它们**，
   是纯残留文件，可安全删除。
-- **发布侧未开 publisher-confirms**，无法路由的消息会**静默丢失**，目前仍靠对账兜底。
+- **发布侧已开 publisher-confirms**（`publisher-confirm-type: correlated` + `publisher-returns` +
+  `template.mandatory`，三个服务各自的 `application.yml`），无法路由的消息不再静默丢失：
+  经 `ReturnsCallback` 反查回 outbox 行、计入 `mall.outbox.unroutable` 并打 ERROR。
+  回调装配见 `mall-common` 的 `OutboxConfirmInstaller`（**附加**到 Boot 自动配置的 RabbitTemplate 上，不替换它）。
+  - 两种失败**刻意区别对待**：发送抛异常 / nack 只累加计数、保持待发送（**无限重试**——
+    outbox 的意义就是「broker 迟早会回来」，加上限会让一次 broker 重启就永久丢事件）；
+    而「消息被退回」是路由配置错误、重试永远不会成功，故超过 20 次置 `status=3 已放弃`。
+  - **仍未完成**：`status=3` 只有指标与日志暴露，**没有自动恢复或后台重投入口**，需人工修好路由后手工重置该行。
+  - 开着确认时 relay **不再乐观置已发送**，改由回调推进；若某环境把确认配置摘了，
+    relay 会自动回落到乐观标记（否则该行会被每 3s 无限重投）——这条回落在 `OutboxServiceImpl` 里靠
+    `CachingConnectionFactory.isPublisherConfirms()` 判断。
 
 ## 相关文档
 

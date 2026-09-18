@@ -27,6 +27,7 @@ function onUserCommand(cmd) {
         <el-menu-item index="/products">商品管理</el-menu-item>
         <el-menu-item index="/inventory">库存查询</el-menu-item>
         <el-menu-item index="/category">分类管理</el-menu-item>
+        <el-menu-item index="/coupons">优惠券</el-menu-item>
       </el-menu>
     </el-aside>
     <el-container class="right">

@@ -15,6 +15,10 @@ const routes = [
   { path: '/store/:username', name: 'store', component: () => import('../views/StoreProducts.vue'), meta: { requiresAuth: true } },
   // 购物车与下单
   { path: '/cart', name: 'cart', component: () => import('../views/Cart.vue'), meta: { requiresAuth: true } },
+  // 优惠券
+  { path: '/coupons', name: 'coupons', component: () => import('../views/CouponCenter.vue'), meta: { requiresAuth: true } },
+  // 背包：持有的券等物品
+  { path: '/backpack', name: 'backpack', component: () => import('../views/Backpack.vue'), meta: { requiresAuth: true } },
   { path: '/checkout', name: 'checkout', component: () => import('../views/Checkout.vue'), meta: { requiresAuth: true } },
   { path: '/orders', name: 'orders', component: () => import('../views/MyOrders.vue'), meta: { requiresAuth: true } },
   { path: '/order/:id', name: 'order-detail', component: () => import('../views/OrderDetail.vue'), meta: { requiresAuth: true } },
@@ -27,6 +31,8 @@ const routes = [
   { path: '/seller', name: 'seller', component: () => import('../views/SellerCenter.vue'), meta: { requiresAuth: true } },
   // 卖家中心：查看自己商品的订单
   { path: '/seller/orders', name: 'seller-orders', component: () => import('../views/SellerOrders.vue'), meta: { requiresAuth: true } },
+  // 卖家中心：给自己的商品发券
+  { path: '/seller/coupons', name: 'seller-coupons', component: () => import('../views/SellerCoupons.vue'), meta: { requiresAuth: true } },
 ]
 
 const router = createRouter({

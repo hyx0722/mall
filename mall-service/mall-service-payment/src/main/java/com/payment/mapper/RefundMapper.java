@@ -9,6 +9,8 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.List;
+
 @Mapper
 public interface RefundMapper extends BaseMapper<Refund> {
 
@@ -24,6 +26,20 @@ public interface RefundMapper extends BaseMapper<Refund> {
 
     @Select("select * from refund where refund_no=#{refundNo}")
     Refund selectByRefundNo(@Param("refundNo") String refundNo);
+
+    /**
+     * 退款对账：捞「停在退款中超过 N 分钟」的退款单。
+     *
+     * 这些单是「渠道调用抛异常 → 有界重试耗尽 → 落 q.pay.dlq」之后的遗留——
+     * 此前没有任何机制会把它们捡回来，订单会永久卡在 5退款中，只能靠人去 DLQ 里翻。
+     */
+    @Select("select * from refund where refund_status=0 and created_time <= date_sub(now(), interval #{minutes} minute) "
+            + "order by id limit 100")
+    List<Refund> selectStuckRefunding(@Param("minutes") int minutes);
+
+    /** 悬挂退款单数量（供 mall.refund.pending 指标用） */
+    @Select("select count(*) from refund where refund_status=0 and created_time <= date_sub(now(), interval #{minutes} minute)")
+    long countStuckRefunding(@Param("minutes") int minutes);
 
     /** 退款成功：退款中 -> 退款成功（条件更新，渠道重复回调天然幂等） */
     @Update("update refund set refund_status=1, refund_time=now(), updated_time=now() " +

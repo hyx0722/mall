@@ -11,6 +11,11 @@ import org.apache.ibatis.annotations.Update;
 @Mapper
 public interface InventoryMapper extends BaseMapper<Inventory> {
 
+    // ⚠️ 方法名说 update，实际是 INSERT——勿据此暴露写接口。
+    // 原先它被 InventoryController 的 POST /updateInventory 直接对外，而那条路径既无管理员/归属校验
+    // （任何登录用户可对任意 product_id 造库存行），又不写 inventory_log（破坏「所有库存变动都落流水」），
+    // 故该接口与对应的 Controller/Service 已删除。
+    // 方法本身保留：InventoryMapperConcurrencyTest.seed() 依赖它造初始库存行。
     @Insert("insert into inventory(product_id,user_id,total_stock,locked_stock,available_stock,updated_time)" +
             " values " +
             "(#{productId},#{userId},#{totalStock},#{lockedStock},#{availableStock},now())")

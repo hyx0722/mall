@@ -10,12 +10,22 @@ CREATE TABLE `inventory` (
                              `locked_stock`      INT UNSIGNED    NOT NULL DEFAULT 0      COMMENT '锁定库存（下单未支付等占用）',
                              `available_stock`   INT UNSIGNED    NOT NULL DEFAULT 0      COMMENT '可用库存（= total_stock - locked_stock）',
                              `sales_count`       INT UNSIGNED    NOT NULL DEFAULT 0      COMMENT '累计销量（支付成功后增加）',
+    -- ⚠️ 下面两列必须带 DEFAULT：InventoryMapperConcurrencyTest 用 updateInventory 的
+    --    显式列名 INSERT 造数据，不含这些列——NOT NULL 且无默认值会让那个测试直接失败。
+    --    存量环境升级：
+    --      ALTER TABLE `inventory`
+    --        ADD COLUMN `warn_threshold` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '库存预警阈值；0-不预警' AFTER `sales_count`,
+    --        ADD COLUMN `last_warn_time` DATETIME DEFAULT NULL COMMENT '上次告警时间（冷却窗口去重用）' AFTER `warn_threshold`;
+    `warn_threshold`    INT UNSIGNED    NOT NULL DEFAULT 0      COMMENT '库存预警阈值：available_stock <= 本值即告警；0-不预警',
+    `last_warn_time`    DATETIME        DEFAULT NULL            COMMENT '上次告警时间（冷却窗口去重，避免每轮重复告警）',
                              `version`           INT UNSIGNED    NOT NULL DEFAULT 0      COMMENT '乐观锁版本号',
                              `created_time`        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
                              `updated_time`        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
                              PRIMARY KEY (`id`),
                              UNIQUE KEY `uk_product_id` (`product_id`),
-                             KEY `idx_available_stock` (`available_stock`)
+                             KEY `idx_available_stock` (`available_stock`),
+                             -- 预警扫描按「阈值 > 0」筛，绝大多数行 warn_threshold=0，走这个索引能少扫一遍全表
+                             KEY `idx_warn_threshold` (`warn_threshold`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品库存表';
 
 -- 2. 库存流水表
@@ -52,7 +62,7 @@ CREATE TABLE `outbox` (
                            `exchange`     VARCHAR(100)    NOT NULL COMMENT '目标交换机',
                            `routing_key`  VARCHAR(100)    NOT NULL COMMENT '目标路由键',
                            `payload`      TEXT            NOT NULL COMMENT '事件 JSON 原文',
-                           `status`       TINYINT         NOT NULL DEFAULT 0 COMMENT '状态：0-待发送 1-已发送',
+                           `status`       TINYINT         NOT NULL DEFAULT 0 COMMENT '状态：0-待发送 1-已发送 3-已放弃(无法路由超限，需人工介入)',
                            `retry_count`  INT             NOT NULL DEFAULT 0 COMMENT '投递失败重试次数',
                            `delay_ms`     BIGINT          DEFAULT NULL COMMENT '非空则走延迟交换机并附加 per-message TTL(毫秒)',
                            `created_time` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',

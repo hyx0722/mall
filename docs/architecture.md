@@ -37,7 +37,7 @@ mall
 │                              #   Rabbit 拓扑常量、事务 outbox 实现、outbox 指标（@Import 复用）
 ├── mall-gateway               # 网关：路由转发 + JWT 鉴权 + 注入用户身份头
 ├── mall-service               # 业务服务聚合模块
-│   ├── mall-service-user      # 用户 / 收货地址 / 商家上架商品入口
+│   ├── mall-service-user      # 用户 / 收货地址 / 商家上架商品入口 / 优惠券（定义·归属·试算·核销）
 │   ├── mall-service-product   # 商品 / 分类 / 购物车（商家管理 + 买家浏览）
 │   ├── mall-service-order     # 订单（下单主流程 + 取消 / 发货 / 收货 / 退款）
 │   ├── mall-service-inventory # 库存（MQ 消费扣减 + 补货 + 流水）
@@ -69,8 +69,12 @@ mall
 `mysql-connector-j`、`druid-spring-boot-4-starter`、`spring-boot-starter-data-redis`、
 `redisson-spring-boot-starter`、`spring-security-crypto`、Nacos discovery + config、OpenFeign、
 loadbalancer、Sentinel。
-其中 **order / inventory / payment** 额外加 `spring-boot-starter-amqp`；**payment** 另加
+其中 **order / inventory / payment / user** 额外加 `spring-boot-starter-amqp`；**payment** 另加
 `alipay-sdk-java:4.40.630.ALL` 与 `wechatpay-java:0.2.17`。
+
+> user 是其中唯一的**纯消费者**：它只为退券订阅 `order.canceled` / `order.refunded`，
+> **不发布任何事件**，因此没有 `outbox` 表、启动类上**不** `@Import(OutboxConfig.class)`、也不注册
+> `OutboxMetrics`。上文「带 outbox 表的服务才导入」那条规则对它同样适用，结论是「不导入」。
 
 ## 服务与端口
 

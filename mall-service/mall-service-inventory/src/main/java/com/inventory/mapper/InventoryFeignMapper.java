@@ -38,6 +38,34 @@ public interface InventoryFeignMapper {
             "where product_id=#{productId} and user_id=#{userId}")
     int addStock(@Param("productId") Long productId, @Param("userId") Long userId, @Param("qty") Integer qty);
 
+    /**
+     * 商家设置自有商品的预警阈值。带 {@code user_id} 归属条件——
+     * 商家改不动别人商品的阈值（与 addStock 同款防越权）。
+     */
+    @Update("update inventory set warn_threshold=#{threshold}, updated_time=now() "
+            + "where product_id=#{productId} and user_id=#{userId}")
+    int updateWarnThreshold(@Param("productId") Long productId, @Param("userId") Long userId,
+                            @Param("threshold") Integer threshold);
+
+    /**
+     * 库存预警扫描：可用库存已跌到阈值（且阈值 > 0），且**不在冷却窗口内**。
+     * 冷却靠 last_warn_time，否则每轮扫描都会把同一批商品重复告警一遍。
+     */
+    @Select("select i.id,i.product_id,i.user_id,i.total_stock,i.locked_stock,i.available_stock,"
+            + "i.sales_count,i.warn_threshold,i.last_warn_time,i.created_time,i.updated_time,"
+            + " p.name as product_name, u.username as seller_name "
+            + "from inventory i "
+            + "left join mall_service_product.product p on p.id=i.product_id "
+            + "left join mall_service_user.user u on u.id=i.user_id "
+            + "where i.warn_threshold > 0 and i.available_stock <= i.warn_threshold "
+            + "and (i.last_warn_time is null or i.last_warn_time <= date_sub(now(), interval #{cooldownHours} hour)) "
+            + "order by i.available_stock asc limit 200")
+    List<Inventory> selectBelowThreshold(@Param("cooldownHours") int cooldownHours);
+
+    /** 记一次告警时间，开启冷却窗口 */
+    @Update("update inventory set last_warn_time=now() where id=#{id}")
+    int markWarned(@Param("id") Long id);
+
     // 管理员：查询库存（可按商品 id 过滤）；跨库带商品名与卖家用户名
     @Select("<script>" +
             "select i.id,i.product_id,i.user_id,i.total_stock,i.locked_stock,i.available_stock,i.sales_count,i.version,i.created_time,i.updated_time," +

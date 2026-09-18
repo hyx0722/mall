@@ -6,8 +6,11 @@ import com.model.bean.Result;
 import com.order.bean.OrderItem;
 import com.order.bean.OrderRefund;
 import com.order.bean.RefundAuditRequest;
+import com.order.bean.Withdraw;
+import com.order.bean.WithdrawAuditRequest;
 import com.order.service.OrderAdminService;
 import com.order.service.OrderRefundService;
+import com.order.service.WithdrawService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,6 +33,26 @@ public class OrderAdminController {
     OrderAdminService orderAdminService;
     @Autowired
     OrderRefundService orderRefundService;
+    @Autowired
+    WithdrawService withdrawService;
+
+    // ---------- 管理员：商家提现审核 ----------
+
+    /** 待审核的提现申请 */
+    @GetMapping("/admin/withdrawals")
+    public Result<List<Withdraw>> adminWithdrawals() {
+        Auths.requireAdmin();
+        return Result.success(withdrawService.listPending());
+    }
+
+    /** 审核提现：通过即视为已打款（本仓未接真实出款通道），并把对应结算明细置为已提现 */
+    @PostMapping("/admin/withdraw/audit")
+    public Result adminWithdrawAudit(@RequestBody @Validated WithdrawAuditRequest request) {
+        Auths.requireAdmin();
+        withdrawService.audit(request.getWithdrawId(), Auths.currentUserId(),
+                Boolean.TRUE.equals(request.getApprove()), request.getRejectReason());
+        return Result.success();
+    }
 
     // ---------- 管理员：查看所有订单（内部系统，/order/admin/*） ----------
 

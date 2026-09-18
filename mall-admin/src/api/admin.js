@@ -35,6 +35,17 @@ export function listAllInventory(productId) {
   return request.get('/inventory/admin/listAll', { params: { productId } })
 }
 
+// ---------- 优惠券管理（/user/admin/coupon/*） ----------
+export function listCoupons(keyword) {
+  return request.get('/user/admin/coupon/list', { params: { keyword } })
+}
+export function createCoupon(data) {
+  return request.post('/user/admin/coupon/create', data)
+}
+export function updateCouponStatus(couponId, status) {
+  return request.put('/user/admin/coupon/status', null, { params: { couponId, status } })
+}
+
 // ---------- 分类管理（/product/category/*） ----------
 export function categoryTree() {
   return request.get('/product/category/tree')

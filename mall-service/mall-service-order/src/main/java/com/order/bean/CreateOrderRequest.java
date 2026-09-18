@@ -19,6 +19,12 @@ public class CreateOrderRequest {
 
     private String remark;
 
+    /**
+     * 要使用的优惠券（user_coupon.id）。不传即不用券。
+     * 只接受「用户持有的券的 id」，可用性由 user 服务判定——order 侧不复制任何券规则。
+     */
+    private Long userCouponId;
+
     @NotEmpty(message = "订单明细不能为空")
     @Valid
     private List<Item> items;

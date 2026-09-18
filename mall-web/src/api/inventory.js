@@ -7,10 +7,9 @@ export function restock(productId, qty) {
   return request.post('/inventory/restock', null, { params: { productId, qty } })
 }
 
-// 直接写入库存记录（等价新增/初始化一行库存）：body Inventory
-export function updateInventory(payload) {
-  return request.post('/inventory/updateInventory', payload)
-}
+// 注：曾有一个 updateInventory(payload) 直写库存记录的导出，对应后端 POST /inventory/updateInventory。
+// 该后端接口无管理员/归属校验，任何登录用户都能对任意 product_id 插入库存行且不写 inventory_log，
+// 破坏「所有库存变动都落流水」的不变量，已连同前端导出一并移除。库存只能经 restock / addNumInventory 变更。
 
 // 为商品初始化库存（addNumInventory，feign 目标；发布商品时后端已代为完成）
 export function addNumInventory(payload) {

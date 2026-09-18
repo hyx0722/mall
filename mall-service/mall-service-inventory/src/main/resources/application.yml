@@ -18,6 +18,14 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
+    # 发布确认：让 outbox relay 能知道消息是否真被 broker 接收、是否路由到了队列。
+    # correlated 才会把 CorrelationData 回传给 ConfirmCallback（relay 靠它反查 outbox 行）；
+    # publisher-returns + template.mandatory 缺一不可——mandatory 是「无法路由时退回」的前提。
+    # 全开后 relay 不再乐观置已发送，改由回调推进，见 OutboxServiceImpl。
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
 
 server:
   port: 9004

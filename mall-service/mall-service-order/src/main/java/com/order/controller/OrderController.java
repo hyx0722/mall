@@ -11,8 +11,11 @@ import com.order.bean.RefundAuditRequest;
 import com.order.bean.SellerOrderVO;
 import com.order.bean.ShipRequest;
 import com.order.bean.Shipping;
+import com.order.bean.WithdrawApplyRequest;
 import com.order.service.OrderRefundService;
 import com.order.service.OrderService;
+import com.order.service.SettlementService;
+import com.order.service.WithdrawService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,6 +33,10 @@ public class OrderController {
     OrderService orderService;
     @Autowired
     OrderRefundService orderRefundService;
+    @Autowired
+    SettlementService settlementService;
+    @Autowired
+    WithdrawService withdrawService;
     //查看自己所有的订单
     @GetMapping("findAllOrder")
     public Result<List<Order>> findAllOrder(){
@@ -99,6 +106,28 @@ public class OrderController {
     public Result<List<Shipping>> shippings(@RequestParam Long orderId) {
         Auths.requireLogin();
         return Result.success(orderService.listShippings(Auths.currentUserId(), orderId));
+    }
+
+    // 卖家对账：订单完成后生成的结算明细与各状态汇总（金额口径见 Settlement 类注释）
+    @GetMapping("/seller/settlement")
+    public Result sellerSettlement() {
+        Auths.requireLogin();
+        return Result.success(settlementService.sellerSummary(Auths.currentUserId()));
+    }
+
+    // 卖家提现：可提现余额 + 历史提现申请（账期 T+N 见 WithdrawService）
+    @GetMapping("/seller/withdraw")
+    public Result sellerWithdraw() {
+        Auths.requireLogin();
+        return Result.success(withdrawService.summary(Auths.currentUserId()));
+    }
+
+    // 发起提现申请；审核在 OrderAdminController
+    @PostMapping("/seller/withdraw/apply")
+    public Result withdrawApply(@RequestBody @Validated WithdrawApplyRequest request) {
+        Auths.requireLogin();
+        withdrawService.apply(Auths.currentUserId(), request.getAmount());
+        return Result.success();
     }
 
     // ---------- 退款（买家申请 / 卖家审核；管理员审核在 OrderAdminController） ----------

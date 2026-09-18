@@ -14,6 +14,7 @@ package com.mall.common.rabbit;
  *   order 发布 refund.request -> payment 消费（申请建退款单 / 审核通过打款 / 审核驳回置失败）
  *   payment 发布 pay.refund.success -> order 消费（退款到账：退款中 -> 已退款）
  *   order 发布 order.refunded -> inventory 消费（退货入库，回补可用库存）
+ *   order 发布 order.completed -> order 自身消费（生成商家结算明细）
  *
  * 支付超时走延迟消息：mall.order.delay.exchange 收到带 per-message TTL 的超时标记，
  * 进入无消费者持有队列 q.delay.order.timeout，TTL 到点死信回主交换机 order.timeout -> q.order.timeout。
@@ -43,6 +44,17 @@ public final class RabbitTopology {
     /** order 发布：订单已退款（inventory 侧回补库存，写 change_type=6） */
     public static final String RK_ORDER_REFUNDED = "order.refunded";
 
+    // ---------- 正向终态 ----------
+
+    /**
+     * order 发布：订单已完成（买家确认收货，2待收货 -> 3已完成）。
+     *
+     * 消费者是 **order 服务自己**（生成商家结算明细），故队列 {@link #Q_ORDER_COMPLETED}
+     * 也由 order 的 RabbitConfig 声明——与「消费者声明自己的队列」这条规则一致。
+     * 日后若通知中心等也要订阅，由那个服务自己声明自己的队列。
+     */
+    public static final String RK_ORDER_COMPLETED = "order.completed";
+
     // ---------- 支付超时延迟消息（DLX + per-message TTL） ----------
 
     /** 延迟交换机：超时标记带 per-message TTL 发到这里，进入无消费者持有队列等 TTL */
@@ -64,6 +76,7 @@ public final class RabbitTopology {
     public static final String Q_ORDER_DLQ = "q.order.dlq";
     public static final String Q_INVENTORY_DLQ = "q.inventory.dlq";
     public static final String Q_PAY_DLQ = "q.pay.dlq";
+    public static final String Q_USER_DLQ = "q.user.dlq";
 
     /** 库存侧：消费下单事件 */
     public static final String Q_ORDER_CREATED = "q.inventory.order.created";
@@ -83,4 +96,10 @@ public final class RabbitTopology {
     public static final String Q_ORDER_REFUND_SUCCESS = "q.order.refund.success";
     /** 库存侧：订单已退款（回补库存） */
     public static final String Q_INVENTORY_ORDER_REFUNDED = "q.inventory.order.refunded";
+    /** 订单侧：订单已完成（结算 / 评价的起点；消费者落地时由该服务声明本队列） */
+    public static final String Q_ORDER_COMPLETED = "q.order.completed";
+    /** 用户侧：订单取消（退券）。与 inventory 释放锁定、payment 关闭未付支付单同一个事件、各绑各的队列 */
+    public static final String Q_USER_ORDER_CANCELED = "q.user.order.canceled";
+    /** 用户侧：订单已退款（退券）。与 inventory 回补库存同一个事件 */
+    public static final String Q_USER_ORDER_REFUNDED = "q.user.order.refunded";
 }

@@ -40,6 +40,12 @@ const routes = [
     component: () => import('../views/CategoryManage.vue'),
     meta: { requiresAdmin: true },
   },
+  {
+    path: '/coupons',
+    name: 'coupons',
+    component: () => import('../views/CouponManage.vue'),
+    meta: { requiresAdmin: true },
+  },
 ]
 
 const router = createRouter({

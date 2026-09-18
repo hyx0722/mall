@@ -1,11 +1,14 @@
 package com.order.service.impl;
 
 import com.mall.common.web.Auths;
+import com.model.bean.CouponPreviewRequest;
+import com.model.bean.CouponPreviewResult;
 import com.model.bean.Order;
 import com.model.bean.Product;
 import com.model.bean.Result;
 import com.model.enums.OrderStatus;
 import com.model.event.InventoryResultEvent;
+import com.model.event.OrderCompletedEvent;
 import com.model.event.OrderCreatedEvent;
 import com.model.event.OrderTimeoutEvent;
 import com.model.event.PaySuccessEvent;
@@ -16,6 +19,7 @@ import com.order.bean.SellerOrderVO;
 import com.order.bean.Shipping;
 import com.order.config.OrderRabbitConfig;
 import com.order.feign.ProductFeignClient;
+import com.order.feign.UserFeignClient;
 import com.order.mapper.OrderItemMapper;
 import com.order.mapper.OrderMapper;
 import com.order.mapper.ShippingMapper;
@@ -45,6 +49,8 @@ public class OrderServiceImpl implements OrderService {
     ShippingMapper shippingMapper;
     @Autowired
     ProductFeignClient productFeignClient;
+    @Autowired
+    UserFeignClient userFeignClient;
     @Autowired
     OutboxService outboxService;
     @Autowired
@@ -87,6 +93,9 @@ public class OrderServiceImpl implements OrderService {
         String orderNo = genOrderNo(userId);
         BigDecimal totalAmount = BigDecimal.ZERO;
         List<OrderItem> items = new ArrayList<>();
+        // 券的「指定商品/分类」范围判定要用 categoryId 与行小计，快照循环里顺手收集，
+        // 避免为算券再向 product 服务回查一遍
+        List<CouponPreviewRequest.Line> couponLines = new ArrayList<>();
 
         // 同步快照：拉价格/名称/主图（返回 Result<Product>）
         for (CreateOrderRequest.Item reqItem : request.getItems()) {
@@ -110,6 +119,19 @@ public class OrderServiceImpl implements OrderService {
             item.setQuantity(reqItem.getQuantity());
             item.setTotalPrice(lineTotal);
             items.add(item);
+
+            CouponPreviewRequest.Line couponLine = new CouponPreviewRequest.Line();
+            couponLine.setProductId(product.getId());
+            couponLine.setCategoryId(product.getCategoryId());
+            couponLine.setLineTotal(lineTotal);
+            couponLines.add(couponLine);
+        }
+
+        // 用券试算：规则全在 user 服务，这里只采用它给出的抵扣额
+        BigDecimal discountAmount = previewCoupon(request.getUserCouponId(), couponLines);
+        if (discountAmount.signum() > 0 && discountAmount.compareTo(totalAmount) >= 0) {
+            // 抵扣后为 0 元：渠道不收 0 元单，且「全额白拿」几乎必然是券配错了
+            throw new BusinessException("优惠券抵扣后订单金额为 0，请更换优惠券");
         }
 
         // 订单头
@@ -118,7 +140,7 @@ public class OrderServiceImpl implements OrderService {
         order.setUserId(userId);
         order.setAddressId(request.getAddressId());
         order.setTotalAmount(totalAmount);
-        order.setDiscountAmount(BigDecimal.ZERO);
+        order.setDiscountAmount(discountAmount);
         order.setOrderStatus(OrderStatus.WAIT_PAY.code());
         order.setRemark(request.getRemark());
         orderMapper.insertOrder(order); // useGeneratedKeys 回填 id
@@ -128,6 +150,9 @@ public class OrderServiceImpl implements OrderService {
             item.setOrderId(order.getId());
             orderItemMapper.insertOrderItem(item);
         }
+
+        // 核销券：与「折扣写进订单」同一事务——券若已被并发用掉则整体回滚，订单不会带着折扣落库
+        redeemCoupon(request.getUserCouponId(), order.getId());
 
         // 同事务入 outbox：业务落库与事件发布原子，relay 提交后再投递（下游不会在订单未落库时消费）
         Long orderId = order.getId();
@@ -139,6 +164,42 @@ public class OrderServiceImpl implements OrderService {
         outboxService.enqueue(OrderRabbitConfig.DELAY_EXCHANGE, OrderRabbitConfig.RK_DELAY_ORDER_TIMEOUT,
                 payTimeoutMinutes * 60_000L, timeout);
         return order;
+    }
+
+    /**
+     * 用券试算（不用券返回 0）。不可用直接抛业务异常并中止下单——文案由 user 服务统一给出
+     * （门槛未满 / 不在有效期 / 不适用本单商品），order 侧不复述任何券规则。
+     */
+    private BigDecimal previewCoupon(Long userCouponId, List<CouponPreviewRequest.Line> lines) {
+        if (userCouponId == null) {
+            return BigDecimal.ZERO;
+        }
+        CouponPreviewRequest preview = new CouponPreviewRequest();
+        preview.setUserCouponId(userCouponId);
+        preview.setLines(lines);
+        Result<CouponPreviewResult> result = userFeignClient.preview(preview);
+        if (result == null || result.getCode() != 0 || result.getData() == null) {
+            throw new BusinessException(result == null ? "优惠券服务暂不可用" : result.getMessage());
+        }
+        CouponPreviewResult data = result.getData();
+        if (!data.isUsable()) {
+            throw new BusinessException(data.getReason() == null ? "优惠券不可用" : data.getReason());
+        }
+        return data.getDiscountAmount() == null ? BigDecimal.ZERO : data.getDiscountAmount();
+    }
+
+    /**
+     * 核销券。失败必须抛出，让下单事务整体回滚——否则订单带着折扣落库、券却没销掉，
+     * 买家能拿同一张券反复抵扣。
+     */
+    private void redeemCoupon(Long userCouponId, Long orderId) {
+        if (userCouponId == null) {
+            return;
+        }
+        Result<Void> result = userFeignClient.use(userCouponId, orderId);
+        if (result == null || result.getCode() != 0) {
+            throw new BusinessException(result == null ? "优惠券服务暂不可用" : result.getMessage());
+        }
     }
 
     private void enqueueOrderCreated(String orderNo, Long orderId, Long userId, CreateOrderRequest request) {
@@ -341,7 +402,26 @@ public class OrderServiceImpl implements OrderService {
         if (affected == 0) {
             throw new BusinessException("订单不存在或当前状态不可收货");
         }
+        // 同事务入箱 order.completed：结算（本服务消费）与评价等下游都以「订单完成」为起点。
+        // 只在条件更新真的翻转了状态时才发——重复收货在上面已提前 return，不会重复发事件。
+        enqueueOrderCompleted(order);
         log.info("[order] 买家 {} 确认收货订单 {} 完成", userId, orderId);
+    }
+
+    private void enqueueOrderCompleted(Order order) {
+        OrderCompletedEvent event = new OrderCompletedEvent();
+        event.setOrderNo(order.getOrderNo());
+        event.setOrderId(order.getId());
+        event.setUserId(order.getUserId());
+        List<OrderCompletedEvent.Item> evtItems = new ArrayList<>();
+        for (OrderItem item : orderItemMapper.selectByOrderId(order.getId())) {
+            OrderCompletedEvent.Item it = new OrderCompletedEvent.Item();
+            it.setProductId(item.getProductId());
+            it.setQuantity(item.getQuantity());
+            evtItems.add(it);
+        }
+        event.setItems(evtItems);
+        outboxService.enqueue(OrderRabbitConfig.ORDER_EXCHANGE, OrderRabbitConfig.RK_ORDER_COMPLETED, null, event);
     }
 
     @Override

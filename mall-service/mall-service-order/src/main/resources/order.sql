@@ -70,7 +70,7 @@ CREATE TABLE `outbox` (
                            `exchange`     VARCHAR(100)    NOT NULL COMMENT '目标交换机',
                            `routing_key`  VARCHAR(100)    NOT NULL COMMENT '目标路由键',
                            `payload`      TEXT            NOT NULL COMMENT '事件 JSON 原文',
-                           `status`       TINYINT         NOT NULL DEFAULT 0 COMMENT '状态：0-待发送 1-已发送',
+                           `status`       TINYINT         NOT NULL DEFAULT 0 COMMENT '状态：0-待发送 1-已发送 3-已放弃(无法路由超限，需人工介入)',
                            `retry_count`  INT             NOT NULL DEFAULT 0 COMMENT '投递失败重试次数',
                            `delay_ms`     BIGINT          DEFAULT NULL COMMENT '非空则走延迟交换机并附加 per-message TTL(毫秒)',
                            `created_time` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -104,3 +104,48 @@ CREATE TABLE `order_refund` (
                                 KEY `idx_user_id` (`user_id`),
                                 KEY `idx_refund_status` (`refund_status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='退款申请单';
+
+-- 6. 商家结算明细（order 服务消费 order.completed 时生成，一笔订单明细一行）
+--    存量环境升级：本表为本轮新增，直接在已有库执行下面这条 CREATE TABLE 即可（无 ALTER）。
+CREATE TABLE `settlement` (
+                              `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '结算明细ID',
+                              `order_id`          BIGINT UNSIGNED NOT NULL                COMMENT '订单ID（orders.id）',
+                              `order_no`          VARCHAR(32)     NOT NULL                COMMENT '订单号（冗余，便于排查）',
+                              `order_item_id`     BIGINT UNSIGNED NOT NULL                COMMENT '订单明细ID（结算的幂等键）',
+                              `seller_id`         BIGINT UNSIGNED NOT NULL                COMMENT '卖家用户ID（来自 product.user_id，跨库直读）',
+                              `product_id`        BIGINT UNSIGNED NOT NULL                COMMENT '商品ID',
+                              `gross_amount`      DECIMAL(10,2)   NOT NULL DEFAULT 0.00   COMMENT '行原价合计（单价×数量）',
+                              `discount_amount`   DECIMAL(10,2)   NOT NULL DEFAULT 0.00   COMMENT '该行分摊到的优惠金额（整单优惠按行占比分摊）',
+                              `commission_amount` DECIMAL(10,2)   NOT NULL DEFAULT 0.00   COMMENT '平台佣金（按行实付计，不按原价）',
+                              `net_amount`        DECIMAL(10,2)   NOT NULL DEFAULT 0.00   COMMENT '应结给卖家 = gross - discount - commission',
+                              `status`            TINYINT         NOT NULL DEFAULT 0      COMMENT '状态：0-待结算，1-可提现，2-已提现',
+                              `created_time`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                              `updated_time`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                              PRIMARY KEY (`id`),
+                              -- 幂等键：order.completed 可能被重投（relay 是 at-least-once），
+                              -- 靠它保证同一订单明细只记一次账，而不是靠「先查后插」
+                              UNIQUE KEY `uk_order_item` (`order_item_id`),
+                              KEY `idx_seller_status` (`seller_id`,`status`),
+                              KEY `idx_order_id` (`order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家结算明细表';
+
+-- 7. 商家提现申请
+--    与 settlement 的关系：**审核通过时才把可提现的结算明细置为已提现**，
+--    申请中的金额靠本表的 status=0 从可提现余额里扣掉，不占用 settlement 的状态。
+--    存量环境升级：本表为本轮新增，直接执行下面这条 CREATE TABLE 即可（无 ALTER）。
+CREATE TABLE `withdraw` (
+                            `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '提现申请ID',
+                            `withdraw_no`   VARCHAR(32)     NOT NULL                COMMENT '提现单号（业务唯一）',
+                            `seller_id`     BIGINT UNSIGNED NOT NULL                COMMENT '申请提现的商家ID',
+                            `amount`        DECIMAL(10,2)   NOT NULL                COMMENT '提现金额',
+                            `status`        TINYINT         NOT NULL DEFAULT 0      COMMENT '状态：0-待审核，1-已打款，2-已驳回',
+                            `audit_user_id` BIGINT UNSIGNED DEFAULT NULL            COMMENT '审核人ID（管理员）',
+                            `audit_time`    DATETIME        DEFAULT NULL            COMMENT '审核时间',
+                            `reject_reason` VARCHAR(255)    DEFAULT NULL            COMMENT '驳回原因',
+                            `apply_time`    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '申请时间（审核通过时据此划定要标记的结算明细）',
+                            `created_time`  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                            `updated_time`  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                            PRIMARY KEY (`id`),
+                            UNIQUE KEY `uk_withdraw_no` (`withdraw_no`),
+                            KEY `idx_seller_status` (`seller_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家提现申请表';

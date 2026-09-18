@@ -18,6 +18,14 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
+    # 发布确认：让 outbox relay 能知道消息是否真被 broker 接收、是否路由到了队列。
+    # correlated 才会把 CorrelationData 回传给 ConfirmCallback（relay 靠它反查 outbox 行）；
+    # publisher-returns + template.mandatory 缺一不可——mandatory 是「无法路由时退回」的前提。
+    # 全开后 relay 不再乐观置已发送，改由回调推进，见 OutboxServiceImpl。
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
 
 server:
   port: 9003
@@ -25,6 +33,11 @@ server:
 # 支付超时自动取消阈值（分钟）
 order:
   pay-timeout-minutes: 30
+  # 平台佣金率：按**行实付**（行原价 − 行分摊优惠）计，不是按原价——
+  # 否则平台会从自己让利出去的那部分钱里再抽一份佣金
+  commission-rate: 0.05
+  # 账期 T+N：结算明细生成后 N 天才转为可提现（售后期内退款的风险由平台先担着）
+  settlement-delay-days: 7
 
 management:
   endpoints:

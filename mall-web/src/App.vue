@@ -16,11 +16,14 @@ const ACTIVE_MAP = {
   store: '/',
   cart: '/cart',
   checkout: '/cart',
+  coupons: '/coupons',
+  backpack: '/backpack',
   orders: '/orders',
   'order-detail': '/orders',
   pay: '/orders',
   seller: '/seller',
   'seller-orders': '/seller',
+  'seller-coupons': '/seller',
   profile: '/profile',
   address: '/address',
 }
@@ -67,6 +70,8 @@ function onUserCommand(cmd) {
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="/profile">个人中心</el-dropdown-item>
+                <el-dropdown-item command="/coupons">优惠券</el-dropdown-item>
+                <el-dropdown-item command="/backpack">背包</el-dropdown-item>
                 <el-dropdown-item command="/address">收货地址</el-dropdown-item>
                 <el-dropdown-item divided command="__logout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
