@@ -1,8 +1,7 @@
 package com.payment.controller;
 
+import com.mall.common.web.Auths;
 import com.model.bean.Result;
-import com.model.exception.BusinessException;
-import com.model.util.ThreadLocalUtil;
 import com.payment.bean.CreatePayOrderRequest;
 import com.payment.bean.CreatePayOrderVO;
 import com.payment.bean.MockSuccessRequest;
@@ -10,6 +9,7 @@ import com.payment.channel.AlipayChannel;
 import com.payment.channel.NotifyResult;
 import com.payment.channel.WxChannel;
 import com.payment.service.PayOrderService;
+import com.payment.service.PaySettleService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +36,8 @@ public class PayController {
     @Autowired
     PayOrderService payOrderService;
     @Autowired
+    PaySettleService paySettleService;
+    @Autowired
     AlipayChannel alipayChannel;
     @Autowired
     WxChannel wxChannel;
@@ -49,11 +51,8 @@ public class PayController {
     /** 模拟支付成功（仅测试钩子，需登录且支付单归属当前用户） */
     @PostMapping("/mock/success")
     public Result mockSuccess(@RequestBody @Validated MockSuccessRequest request) {
-        Map<String, Object> identity = ThreadLocalUtil.get();
-        if (identity == null || identity.get("id") == null) {
-            throw new BusinessException("请先登录");
-        }
-        Long userId = (Long) identity.get("id");
+        Auths.requireLogin();
+        Long userId = Auths.currentUserId();
         payOrderService.mockPaySuccess(userId, request.getPayNo());
         return Result.success();
     }
@@ -68,7 +67,7 @@ public class PayController {
             if (notify == null) {
                 return "failure";
             }
-            boolean ok = payOrderService.settleSuccess(notify.getPayNo(), notify.getTransactionId(),
+            boolean ok = paySettleService.settleSuccess(notify.getPayNo(), notify.getTransactionId(),
                     "ALIPAY_NOTIFY", params.toString());
             return ok ? "success" : "failure";
         } catch (Exception e) {
@@ -92,7 +91,7 @@ public class PayController {
             if (notify == null) {
                 return wxResult("FAIL");
             }
-            boolean ok = payOrderService.settleSuccess(notify.getPayNo(), notify.getTransactionId(),
+            boolean ok = paySettleService.settleSuccess(notify.getPayNo(), notify.getTransactionId(),
                     "WX_NOTIFY", body);
             return ok ? wxResult("SUCCESS") : wxResult("FAIL");
         } catch (Exception e) {

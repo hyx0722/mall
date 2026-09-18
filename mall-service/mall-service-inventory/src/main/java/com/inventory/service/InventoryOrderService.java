@@ -12,8 +12,13 @@ public interface InventoryOrderService {
      * 全有或全无地锁定一个订单的全部商品并写 change_type=3 流水。
      * 任一商品库存不足/未初始化抛 {@code StockLockException} -> 整单回滚（无部分锁定）。
      * 已有该订单流水（重复投递）则跳过该商品，天然幂等。
+     *
+     * 成功时会**在同一事务内**把 inventory.deducted 回执写入 outbox，因此「库存已锁」
+     * 与「回执必达」同生共死；失败回执不走这里（事务回滚），由调用方以独立事务入箱。
+     *
+     * @param orderNo 业务订单号，回执事件体用（order_id 是内部主键，不对外）
      */
-    void lockForOrder(Long orderId, Map<Long, Integer> productQty);
+    void lockForOrder(Long orderId, String orderNo, Map<Long, Integer> productQty);
 
     /**
      * 全有或全无地释放一个订单的全部锁定库存并写 change_type=4 流水。

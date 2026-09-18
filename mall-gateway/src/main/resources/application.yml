@@ -59,12 +59,20 @@ spring:
 server:
   port: 9999
 
-# JWT 签名密钥：由环境变量 JWT_SECRET 注入，仓库内不再保留密钥值。
-# 未提供（或短于 32 字符）时启动即失败，见 com.gateway.util.JwtUtil 的构造校验——
-# 避免悄悄带着「仓库里人人可见的密钥」跑起来。必须与 mall-service-user 的取值一致。
-# 生成一个：openssl rand -base64 32
+# 跨域白名单（见 com.gateway.config.CorsConfig）。
+# 开发期前端走 Vite 代理属同源，用不到它；部署 dist 产物到其它域名/端口时才需要，
+# 届时用环境变量覆盖为真实前端地址。**不要改成 `*`**（与 allowCredentials 冲突且等于全站开放）。
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174}
+
+# JWT 签名密钥：由环境变量 JWT_SECRET 注入，仓库内不保留任何默认值。
+# ⚠️ 这里**故意不写默认值**（`:${JWT_SECRET:}` 而非 `${JWT_SECRET:某个值}`）：
+#    一旦留了默认值，JwtUtil 的长度校验就形同虚设，服务会带着一个仓库里人人可见的
+#    密钥正常启动——任何人都能离线签出合法 token 并伪装成管理员。
+#    留空时 JwtUtil 构造即抛「未配置 JWT 密钥」，把问题挡在启动阶段。
+# 必须与 mall-service-user 的取值一致；生成一个：openssl rand -base64 32
 jwt:
-  secret: ${JWT_SECRET:pfqydNQjrw39d5g0kRUjtEl4kpF+sV2qzMVBsRKO6Cw=}
+  secret: ${JWT_SECRET:}
 
 management:
   endpoints:

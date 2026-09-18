@@ -10,21 +10,36 @@
 mvn test
 ```
 
-仓库**共 2 个测试**——数量少是刻意的：测试集中守两处「靠约定维持、重构时容易被静默破坏」的不变量，
+仓库**共 3 个测试**——数量少是刻意的：测试集中守几处「靠约定维持、重构时容易被静默破坏」的不变量，
 这类东西功能测试测不出来，只能专门守住。
 
 | 模块 | 测试 | 守住什么 |
 | ---- | ---- | ---- |
 | `mall-common` | `IdentityContextTest` | 身份写入 ThreadLocal 后**必须在请求结束被清除**。漏掉 `remove()` 时，线程池复用会让下一个请求继承上一个请求的身份，表现为随机、极难复现的越权 |
+| `mall-common` | `OutboxConfigTest` | `OutboxConfig` 确实导出 outbox 的两个 bean，且 `OutboxService` **是事务代理**——否则 `enqueueNewTx` 的 `REQUIRES_NEW` 不生效，扣减失败回执会随业务事务回滚 |
 | `mall-service-inventory` | `InventoryMapperConcurrencyTest` | 并发扣库存**绝不超卖**（`where available_stock>=qty` 条件 UPDATE 的原子性），以及释放锁定不能凭空造出库存 |
 
 - `IdentityContextTest` 是纯 JUnit 5 + `MockHttpServletRequest`，**不需要 Spring 上下文，也不需要数据库**。
+- `OutboxConfigTest` 只起一个最小 Spring 上下文（桩 `DataSource`/`RabbitTemplate`/`ObjectMapper`），
+  **不连库也不连 broker**，因此任何机器上都能跑。
 - `InventoryMapperConcurrencyTest` 用 Testcontainers 起**真实 MySQL**——该不变量与数据库语义强相关，
   换内存库验证没有意义。它**需要本机 Docker 守护进程处于运行状态**，首次执行会拉取 `mysql:8.4` 镜像。
   其断言是确定性的：总库存 100、每次锁 5，32 线程共 320 次抢锁后成功次数必须**恰好** 20。
 
 > 其余模块没有测试。`mall-service-product/src/test/` 是个空目录。
 > 加集成测试时注意 Boot 4 的三个坑，见 [architecture.md](architecture.md#技术栈全量版本)。
+
+### CI
+
+`.github/workflows/ci.yml` 在 push / PR 时跑两个 job：
+
+- **backend**：`./mvnw -B clean install`（含全部测试）。GitHub 的 ubuntu runner 自带 Docker 守护进程，
+  所以依赖 Testcontainers 的 `InventoryMapperConcurrencyTest` 在 CI 上能正常跑（本机没开 Docker 时会失败，
+  见下）。测试失败会把 surefire 报告作为 artifact 上传。
+- **frontend**：`mall-web` / `mall-admin` 各自 `npm ci && npm run build`（`fail-fast: false`，
+  一个挂了不取消另一个）。`npm ci` 严格按 lockfile 安装，能顺带发现 lockfile 与 package.json 漂移。
+
+> 两个前端此前**没有任何构建校验**，`dist/` 也不入库——CI 是唯一会发现它们构建不出来的地方。
 
 ## 可观测性
 
@@ -34,13 +49,13 @@ mvn test
 | ---- | ---- |
 | `GET /actuator/health` | 健康检查 |
 | `GET /actuator/metrics` | 指标列表，含下面这条自定义业务指标 |
-| `GET /actuator/metrics/mall.outbox.pending` | **outbox 待投递事件数**（仅 order / payment） |
+| `GET /actuator/metrics/mall.outbox.pending` | **outbox 待投递事件数**（仅 order / payment / inventory） |
 
 ### `mall.outbox.pending`
 
 定义在 `mall-common` 的 `OutboxMetrics`（`Gauge`，内部执行 `select count(*) from outbox where status=0`），
-由 `OutboxMetricsConfig` 注册。**只有 order 与 payment** 的启动类 `@Import` 了它——
-因为只有这两个服务有 `outbox` 表。
+由 `OutboxMetricsConfig` 注册。**order、payment、inventory** 三者的启动类 `@Import` 了它——
+因为只有这三个服务有 `outbox` 表。
 
 这条指标值得留意：outbox 由各服务 relay 定时投递，一旦 relay 停摆或持续投递失败，
 事件会静静堆在表里而**没有任何外部表征**（订单不推进、库存不释放），只能从业务现象倒推。
@@ -62,10 +77,14 @@ Redisson 锁用于**串行化同一商品的竞争、降低无效 UPDATE**（锁
 
 ### 事件可靠性
 
-order / payment 的对外事件均走**事务 outbox**（与业务同库同事务入 `outbox` 表，relay 定时投递）；
-支付超时改用**延迟消息**（per-message TTL + 死信回主交换机）并保留低频对账兜底；
+order / payment / inventory 的对外事件均走**事务 outbox**（与业务同库同事务入 `outbox` 表，
+relay 定时投递）；支付超时改用**延迟消息**（per-message TTL + 死信回主交换机）并保留低频对账兜底；
 order/inventory/payment 消费端统一**有界重试(3) + DLQ**；库存扣减改为「单事务扣库存+流水」
-并以 `inventory_log`（`order_id, product_id, change_type` 唯一键）做幂等。详见 [events.md](events.md)。
+并以 `inventory_log`（`order_id, product_id, change_type` 唯一键）做幂等。
+
+> inventory 的**失败回执**是个刻意的例外：它产生于事务回滚之后，用
+> `enqueueNewTx`（REQUIRES_NEW）独立提交。丢它会开出超卖窗口，详见
+> [events.md](events.md#例外业务注定回滚但事件必须送出)。
 
 ### 主键类型
 

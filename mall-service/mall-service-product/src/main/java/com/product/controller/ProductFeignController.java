@@ -1,0 +1,67 @@
+package com.product.controller;
+
+
+import com.mall.common.web.Auths;
+import com.model.bean.Product;
+import com.model.bean.Result;
+import com.product.bean.ProductUpdateRequest;
+import com.product.service.ProductFeignService;
+import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+
+@RestController
+@Validated
+@Slf4j
+public class ProductFeignController {
+    @Autowired
+    ProductFeignService productFeignService;
+
+    //商家上架商品：同 user_id+name 重复上架显式报错；唯一键在并发下兜底。
+    //insert 后主键已回填，返回带 id 的实体，供“建商品->初始化库存”链路复用
+    //归属只认登录态：请求体里的 userId 一律被覆盖（Product.userId 上的 @NotNull 仅为历史契约，
+    //不再作为归属依据），否则直接调本接口即可冒名为他人建商品。
+    @PostMapping("/addNumProduct")
+    public Result<Product> addNumProduct(@RequestBody @Validated Product product){
+        Auths.requireLogin();
+        product.setUserId(Auths.currentUserId());   // 覆盖请求体，归属以调用者登录态为准
+        if (productFeignService.findNumProductByUserIdAndName(product.getUserId(), product.getName()) != null){
+            return Result.error("该商品已存在，请在已有商品页面修改");
+        }
+        try {
+            productFeignService.addNumProduct(product);
+        } catch (DuplicateKeyException e) {
+            //并发双击等场景命中唯一键
+            return Result.error("该商品已存在，请在已有商品页面修改");
+        }
+        return Result.success(product);
+    }
+
+    //商家编辑自己的商品（部分更新），归属以登录态 user_id 为准
+    @PutMapping("/updateProduct")
+    public Result updateProduct(@RequestBody @Valid ProductUpdateRequest request) {
+        productFeignService.updateProduct(currentUserId(), request);
+        return Result.success();
+    }
+
+    //商家上/下架自己的商品
+    @PutMapping("/shelfProduct")
+    public Result shelfProduct(@RequestParam Long id, @RequestParam Integer status) {
+        productFeignService.changeProductStatus(currentUserId(), id, status);
+        return Result.success();
+    }
+
+    /** 当前登录用户 id；取不到即抛「请先登录」，不允许以 null 归属继续执行 */
+    private Long currentUserId() {
+        Auths.requireLogin();
+        return Auths.currentUserId();
+    }
+}

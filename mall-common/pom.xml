@@ -48,6 +48,16 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
             <scope>provided</scope>
         </dependency>
+        <!--
+            amqp（RabbitTemplate），供 com.mall.common.outbox.OutboxServiceImpl 编译。
+            scope=optional：**刻意不传递**。order/payment/inventory 已各自显式声明了 amqp，
+            user/product 不用 outbox 也不该被塞进 Rabbit 自动配置。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+            <optional>true</optional>
+        </dependency>
         <!-- 测试：MockHttpServletRequest/Response（身份拦截器的读写与清理，无需 DB） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

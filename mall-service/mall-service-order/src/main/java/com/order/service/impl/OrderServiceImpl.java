@@ -1,5 +1,6 @@
 package com.order.service.impl;
 
+import com.mall.common.web.Auths;
 import com.model.bean.Order;
 import com.model.bean.Product;
 import com.model.bean.Result;
@@ -9,19 +10,18 @@ import com.model.event.OrderCreatedEvent;
 import com.model.event.OrderTimeoutEvent;
 import com.model.event.PaySuccessEvent;
 import com.model.exception.BusinessException;
-import com.model.util.ThreadLocalUtil;
 import com.order.bean.CreateOrderRequest;
 import com.order.bean.OrderItem;
 import com.order.bean.SellerOrderVO;
 import com.order.bean.Shipping;
 import com.order.config.OrderRabbitConfig;
-import com.order.fein.ProductFeignClient;
+import com.order.feign.ProductFeignClient;
 import com.order.mapper.OrderItemMapper;
 import com.order.mapper.OrderMapper;
 import com.order.mapper.ShippingMapper;
 import com.order.service.OrderCancelService;
 import com.order.service.OrderService;
-import com.order.service.OutboxService;
+import com.mall.common.outbox.OutboxService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -56,21 +56,15 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public List<Order> findAllOrder() {
-        Map<String, Object> map = ThreadLocalUtil.get();
-        if (map == null || map.get("id") == null) {
-            throw new BusinessException("请先登录");
-        }
-        Long userId = (Long) map.get("id");
+        Auths.requireLogin();
+        Long userId = Auths.currentUserId();
         return orderMapper.findAllOrder(userId);
     }
 
     @Override
     public Order findDetailOrder(Long id) {
-        Map<String, Object> map = ThreadLocalUtil.get();
-        if (map == null || map.get("id") == null) {
-            throw new BusinessException("请先登录");
-        }
-        Long userId = (Long) map.get("id");
+        Auths.requireLogin();
+        Long userId = Auths.currentUserId();
         return orderMapper.findDetailOrder(id,userId);
     }
 
@@ -87,11 +81,8 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public Order createOrder(CreateOrderRequest request) {
-        Map<String, Object> map = ThreadLocalUtil.get();
-        if (map == null || map.get("id") == null) {
-            throw new BusinessException("请先登录");
-        }
-        Long userId = (Long) map.get("id");
+        Auths.requireLogin();
+        Long userId = Auths.currentUserId();
 
         String orderNo = genOrderNo(userId);
         BigDecimal totalAmount = BigDecimal.ZERO;

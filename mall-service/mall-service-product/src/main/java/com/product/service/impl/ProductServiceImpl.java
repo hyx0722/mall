@@ -1,10 +1,10 @@
 package com.product.service.impl;
 
 
+import com.mall.common.web.Auths;
 import com.model.bean.PageBean;
 import com.model.bean.Product;
 import com.model.exception.BusinessException;
-import com.model.util.ThreadLocalUtil;
 import com.product.mapper.ProductMapper;
 import com.product.service.ProductService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,11 +35,8 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public PageBean<Product> findProductByUserId(Integer start, Integer size) {
-        Map<String,Object> map = ThreadLocalUtil.get();
-        if (map == null || map.get("id") == null) {
-            throw new BusinessException("请先登录");
-        }
-        Long userId = (Long) map.get("id");
+        Auths.requireLogin();
+        Long userId = Auths.currentUserId();
         int s = normSize(size);
         // 带 total 返回，前端才能算出总页数并据此禁用「下一页」（否则末页点下一页只会得到空列表）
         long total = productMapper.countProductByUserId(userId);

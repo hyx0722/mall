@@ -14,7 +14,7 @@ import com.order.mapper.OrderItemMapper;
 import com.order.mapper.OrderMapper;
 import com.order.mapper.OrderRefundMapper;
 import com.order.service.OrderRefundService;
-import com.order.service.OutboxService;
+import com.mall.common.outbox.OutboxService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;

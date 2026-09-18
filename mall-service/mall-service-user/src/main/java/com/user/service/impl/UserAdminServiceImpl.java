@@ -1,5 +1,6 @@
 package com.user.service.impl;
 
+import com.mall.common.web.Auths;
 import com.model.bean.PageBean;
 import com.model.bean.User;
 import com.model.exception.BusinessException;
@@ -14,6 +15,10 @@ import java.util.List;
 @Service
 public class UserAdminServiceImpl implements UserAdminService {
 
+    /** 分页默认值/上限，与 product 侧 ProductServiceImpl 保持一致 */
+    private static final int DEFAULT_SIZE = 10;
+    private static final int MAX_SIZE = 100;
+
     @Autowired
     private UserAdminMapper userAdminMapper;
 
@@ -26,7 +31,7 @@ public class UserAdminServiceImpl implements UserAdminService {
     @Override
     public PageBean<User> pageUsers(Integer page, Integer size, String keyword) {
         int p = (page == null || page < 1) ? 1 : page;
-        int s = (size == null || size < 1) ? 10 : Math.min(size, 100);
+        int s = (size == null || size < 1) ? DEFAULT_SIZE : Math.min(size, MAX_SIZE);
         String kw = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
         long total = userAdminMapper.countUsers(kw);
         if (total == 0L) {
@@ -56,7 +61,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         if (status != null && status != 0 && status != 1) {
             throw new BusinessException("状态只能为 0(禁用)或 1(正常)");
         }
-        if (role != null && role != 1 && role != 2) {
+        if (role != null && role != Auths.ROLE_USER && role != Auths.ROLE_ADMIN) {
             throw new BusinessException("角色只能为 1(普通用户)或 2(管理员)");
         }
         try {

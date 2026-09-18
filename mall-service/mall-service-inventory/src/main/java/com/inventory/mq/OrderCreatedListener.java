@@ -3,13 +3,13 @@ package com.inventory.mq;
 import com.inventory.config.InventoryRabbitConfig;
 import com.inventory.exception.StockLockException;
 import com.inventory.service.InventoryOrderService;
+import com.mall.common.outbox.OutboxService;
 import com.model.event.InventoryResultEvent;
 import com.model.event.OrderCreatedEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -23,10 +23,17 @@ import java.util.concurrent.TimeUnit;
 /**
  * 消费 order.created：
  * 1) 按商品 id 升序获取 Redisson 分布式锁（跨订单一致加锁序，避免死锁）；
- * 2) 在单事务内完成「条件扣库存 + 写 change_type=3 流水」（InventoryOrderService），
- *    任一商品不足/未初始化 -> 整单回滚并回执 deduct_failed；全部成功回执 deducted；
+ * 2) 在单事务内完成「条件扣库存 + 写 change_type=3 流水 + deducted 回执入箱」
+ *    （InventoryOrderService），任一商品不足/未初始化 -> 整单回滚；
  * 3) 幂等由 DB 流水承担（已有该订单 change_type=3 流水则跳过），不用「先 SETNX 后干活」，
  *    消除处理中崩溃 -> 重投被挡 -> 订单悬挂的窗口；重复投递重复回执，order 侧仅记日志幂等无害。
+ *
+ * 回执一律经 outbox 投递，本类**不再直接发 MQ**：
+ * - 成功回执由 lockForOrder 在事务内入箱（与库存锁定同生共死）；
+ * - 失败回执产生于该事务回滚之后，必须用独立事务入箱（enqueueNewTx）——
+ *   否则它会挂在那个即将回滚的事务里被一并撤销，订单永远收不到 deduct_failed。
+ *   而丢失败回执不只是「晚点取消」：库存没锁上，订单侧 createPayOrder 只校验订单状态
+ *   不校验库存，买家在超时前仍可支付，订单会带着零库存推进到待发货（超卖）。
  */
 @Component
 @Slf4j
@@ -39,7 +46,7 @@ public class OrderCreatedListener {
     @Autowired
     RedissonClient redissonClient;
     @Autowired
-    RabbitTemplate rabbitTemplate;
+    OutboxService outboxService;
 
     @RabbitListener(queues = InventoryRabbitConfig.Q_ORDER_CREATED)
     public void onOrderCreated(OrderCreatedEvent event) {
@@ -81,13 +88,12 @@ public class OrderCreatedListener {
                 return;
             }
             try {
-                inventoryOrderService.lockForOrder(event.getOrderId(), productQty);
+                inventoryOrderService.lockForOrder(event.getOrderId(), event.getOrderNo(), productQty);
             } catch (StockLockException e) {
                 log.warn("[inventory] 订单 {} 库存锁定失败：{}", event.getOrderNo(), e.getMessage());
                 replyDeductFailed(event);
                 return;
             }
-            replyDeducted(event);
         } finally {
             for (RLock lock : held) {
                 if (lock.isHeldByCurrentThread()) {
@@ -97,19 +103,17 @@ public class OrderCreatedListener {
         }
     }
 
-    private void replyDeducted(OrderCreatedEvent event) {
-        InventoryResultEvent done = new InventoryResultEvent();
-        done.setOrderNo(event.getOrderNo());
-        rabbitTemplate.convertAndSend(InventoryRabbitConfig.ORDER_EXCHANGE,
-                InventoryRabbitConfig.RK_DEDUCTED, done);
-        log.info("[inventory] 订单 {} 库存锁定完成", event.getOrderNo());
-    }
-
+    /**
+     * 失败回执入箱。此处 lockForOrder 的事务**已经回滚**（或压根没开启），
+     * 故必须用独立事务（enqueueNewTx）提交，否则回执会随回滚一起消失。
+     * 入箱本身失败会抛出 -> 交给监听容器的有界重试，重试耗尽落 q.inventory.dlq 等人工介入，
+     * 不会静默丢失。
+     */
     private void replyDeductFailed(OrderCreatedEvent event) {
         InventoryResultEvent failed = new InventoryResultEvent();
         failed.setOrderNo(event.getOrderNo());
-        rabbitTemplate.convertAndSend(InventoryRabbitConfig.ORDER_EXCHANGE,
-                InventoryRabbitConfig.RK_DEDUCT_FAILED, failed);
-        log.warn("[inventory] 订单 {} 库存锁定失败，回执 deduct_failed", event.getOrderNo());
+        outboxService.enqueueNewTx(InventoryRabbitConfig.ORDER_EXCHANGE,
+                InventoryRabbitConfig.RK_DEDUCT_FAILED, null, failed);
+        log.warn("[inventory] 订单 {} 库存锁定失败，回执 deduct_failed 已入箱", event.getOrderNo());
     }
 }

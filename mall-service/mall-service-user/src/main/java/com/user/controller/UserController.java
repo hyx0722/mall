@@ -2,9 +2,10 @@ package com.user.controller;
 
 
 
+import com.mall.common.web.Auths;
 import com.model.bean.Result;
 import com.model.bean.User;
-import com.model.util.ThreadLocalUtil;
+import com.model.constant.RedisKeys;
 import com.user.bean.UserAddress;
 import com.user.bean.UserUpdateDTO;
 import com.user.service.UserService;
@@ -77,7 +78,7 @@ public class UserController {
             String token = jwtUtil.genToken(claims);
             // 存入 Redis（键为 login:token:{id}，用于主动失效或单设备登录）
             stringRedisTemplate.opsForValue().set(
-                    "login:token:" + loginUser.getId(),
+                    RedisKeys.loginToken(loginUser.getId()),
                     token,
                     1,
                     TimeUnit.HOURS
@@ -91,8 +92,8 @@ public class UserController {
     //只看username,email,phone,avatar,status
     @GetMapping("/userInfo")
     public Result<User> userInfo() {
-        Map<String, Object> map = ThreadLocalUtil.get();
-        String username = (String) map.get("username");
+        Auths.requireLogin();
+        String username = Auths.currentUsername();
         User user = userService.findUserByUsername(username);
         return Result.success(user);
     }
@@ -109,12 +110,12 @@ public class UserController {
     //删除当前用户
     @DeleteMapping("/delete")
     public Result<String> delete() {
-        Map<String, Object> map = ThreadLocalUtil.get();
-        String username = (String) map.get("username");
-        Long id = (Long) map.get("id");
+        Auths.requireLogin();
+        String username = Auths.currentUsername();
+        Long id = Auths.currentUserId();
         userService.delete(username);
         //清理该用户的登录token，使其立即失效
-        stringRedisTemplate.delete("login:token:" + id);
+        stringRedisTemplate.delete(RedisKeys.loginToken(id));
         return Result.success("该用户删除.");
     }
 
@@ -123,8 +124,8 @@ public class UserController {
     //更新手机号和邮箱（只允许更新当前登录用户自己的信息，id 取自登录态防止越权）
     @PutMapping("/update")
     public Result update(@RequestBody @Validated UserUpdateDTO dto) {
-        Map<String, Object> map = ThreadLocalUtil.get();
-        Long id = (Long) map.get("id");
+        Auths.requireLogin();
+        Long id = Auths.currentUserId();
         userService.update(id, dto.getPhone(), dto.getEmail());
         return Result.success();
     }
@@ -153,9 +154,9 @@ public class UserController {
             return Result.error("新密码不能与旧密码相同");
         }
         //原密码是否正确（matches(明文, 密文)）
-        Map<String, Object> map = ThreadLocalUtil.get();
-        String username = (String) map.get("username");
-        Long id = (Long) map.get("id");
+        Auths.requireLogin();
+        String username = Auths.currentUsername();
+        Long id = Auths.currentUserId();
         String userPassword = userService.findPasswordByUsername(username);
         if (!passwordEncoder.matches(oldPwd, userPassword)) {
             return Result.error("原密码填写不正确");
@@ -167,7 +168,7 @@ public class UserController {
         //2.调用service完成密码更新
         userService.updatePwd(newPwd);
         //3.删除该用户当前登录token，强制重新登录
-        stringRedisTemplate.delete("login:token:" + id);
+        stringRedisTemplate.delete(RedisKeys.loginToken(id));
         return Result.success();
     }
 
@@ -175,8 +176,8 @@ public class UserController {
     //添加收货人的信息
     @PostMapping("/addReceiverDetail")
     public Result addReceiverDetail(@RequestBody @Validated UserAddress userAddress){
-        Map<String, Object> map = ThreadLocalUtil.get();
-        Long userId= (Long) map.get("id");
+        Auths.requireLogin();
+        Long userId = Auths.currentUserId();
         userAddress.setUserId(userId);
         userService.addReceiverDetail(userAddress);
         return Result.success();

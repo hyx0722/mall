@@ -1,9 +1,9 @@
 package com.user.service.impl;
 
+import com.mall.common.web.Auths;
 import com.model.bean.PageBean;
 import com.model.bean.User;
 import com.model.exception.BusinessException;
-import com.model.util.ThreadLocalUtil;
 import com.user.bean.UserAddress;
 import com.user.mapper.UserMapper;
 import com.user.service.UserService;
@@ -14,7 +14,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Map;
 
 @Service
 public class UserServiceImpl  implements UserService {
@@ -61,15 +60,15 @@ public class UserServiceImpl  implements UserService {
 
     @Override
     public void updateAvatar(String avatar) {
-        Map<String,Object> map = ThreadLocalUtil.get();
-        Long id = (Long) map.get("id");
+        Auths.requireLogin();
+        Long id = Auths.currentUserId();
         userMapper.updateAvatar(avatar,id);
     }
 
     @Override
     public void updatePwd(String newPwd) {
-        Map<String,Object> map = ThreadLocalUtil.get();
-        Long id = (Long) map.get("id");
+        Auths.requireLogin();
+        Long id = Auths.currentUserId();
         userMapper.updatePwd(passwordEncoder.encode(newPwd),id);
     }
 

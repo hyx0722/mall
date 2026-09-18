@@ -27,6 +27,19 @@ public final class Auths {
         return v instanceof Number n ? n.longValue() : null;
     }
 
+    /**
+     * 当前登录用户名。网关按 X-Username 注入，user 服务由 LoginInterceptor 从 JWT claims 写入。
+     * 头缺失（内部 Feign 调用 / 公开接口）时为 null。
+     */
+    public static String currentUsername() {
+        Map<String, Object> map = ThreadLocalUtil.get();
+        if (map == null) {
+            return null;
+        }
+        Object v = map.get("username");
+        return v instanceof String s ? s : null;
+    }
+
     public static Integer currentRole() {
         Map<String, Object> map = ThreadLocalUtil.get();
         if (map == null) {

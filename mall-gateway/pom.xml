@@ -9,6 +9,17 @@
     <artifactId>mall-gateway</artifactId>
 
     <dependencies>
+        <!--
+            仅为了 com.model.constant.RedisKeys（与 mall-service-user 共享的 Redis 键契约）。
+            注意：这与「网关不依赖 mall-common」不冲突——mall-common 是 servlet 系的运行时模块，
+            而 model 是技术栈中立的契约模块（只依赖 spring-web + slf4j-api，均为 WebFlux 已有）。
+            其 @RestControllerAdvice 在 com.model 包下，网关只扫 com.gateway，不会被注册。
+        -->
+        <dependency>
+            <groupId>org.example</groupId>
+            <artifactId>model</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
         <!-- Spring Cloud Gateway（Boot 4 / Cloud 2025.1 新 starter，reactive） -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>

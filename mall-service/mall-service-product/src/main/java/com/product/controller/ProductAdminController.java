@@ -5,7 +5,7 @@ import com.model.bean.PageBean;
 import com.model.bean.Product;
 import com.model.bean.Result;
 import com.product.service.ProductAdminService;
-import com.product.service.ProductFeinService;
+import com.product.service.ProductFeignService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;

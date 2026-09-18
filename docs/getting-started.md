@@ -288,6 +288,17 @@ curl -o /dev/null -w "%{http_code}\n" http://localhost:9999/product/category/lis
   ```
 
   （若历史数据有同订单同商品同类型重复流水，先清理再执行。）
+
+**自「库存回执入 outbox」起**：
+
+- **inventory 库需手动补 `outbox` 建表 DDL**（见 `inventory.sql` 尾部第 3 节）。
+  缺这张表不会影响库存消费本身，但 relay 每 3 秒会因「表不存在」报错、扣减回执发不出去，
+  订单侧收不到 `deduct_failed` 就不再被及时取消。存量库执行：
+
+  ```sql
+  -- 完整语句见 inventory.sql 尾部
+  CREATE TABLE `outbox` ( ... ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  ```
 - RabbitMQ 侧新增延迟交换机 / 持有队列 / 死信交换机 / 各 DLQ，且原入站队列现在带
   `x-dead-letter-exchange=mall.order.dlx` 参数——**已存在的同名旧队列与旧参数不符会导致 406
   PRECONDITION_FAILED**。本地演示建议清空 RabbitMQ 数据或换一个 vhost 后重启各服务。

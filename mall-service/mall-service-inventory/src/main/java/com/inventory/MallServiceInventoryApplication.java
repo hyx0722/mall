@@ -1,5 +1,7 @@
 package com.inventory;
 
+import com.mall.common.metrics.OutboxMetricsConfig;
+import com.mall.common.outbox.OutboxConfig;
 import com.mall.common.web.CommonWebConfig;
 import com.model.web.GlobalExceptionHandler;
 import org.springframework.boot.SpringApplication;
@@ -7,13 +9,16 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.context.annotation.Import;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 @SpringBootApplication
 @EnableTransactionManagement
+@EnableScheduling
 @EnableFeignClients
 @EnableDiscoveryClient
-@Import({GlobalExceptionHandler.class, CommonWebConfig.class})
+@Import({GlobalExceptionHandler.class, CommonWebConfig.class,
+        OutboxMetricsConfig.class, OutboxConfig.class})
 public class MallServiceInventoryApplication {
     public static void main(String[] args) {
         SpringApplication.run(MallServiceInventoryApplication.class,args);

@@ -1,6 +1,6 @@
 package com.user.config;
 
-import com.user.intercetors.LoginInterceptor;
+import com.user.interceptors.LoginInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;

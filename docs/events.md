@@ -38,14 +38,44 @@
 
 ### 事务 outbox
 
-order 的 `order.created / order.canceled`、payment 的 `pay.success` **不再**用
-`TransactionSynchronization.afterCommit` 或「事务外立即发」，而是与业务状态变更
-**同一本地事务**写入 `outbox` 表（order/payment 库各一张），由各自 `@Scheduled(3s)` 的 relay
+order 的 `order.created / order.canceled`、payment 的 `pay.success`、inventory 的
+`inventory.deducted / deduct_failed` **不再**用 `TransactionSynchronization.afterCommit`
+或「事务外立即发」，而是与业务状态变更**同一本地事务**写入 `outbox` 表
+（order / payment / inventory 库各一张），由各自 `@Scheduled(3s)` 的 relay
 领取（`for update skip locked`）并投递，成功后置 `status=1`。
 
+实现是**一份**，放在 `mall-common` 的 `com.mall.common.outbox`（原先三个服务各抄一份），
+三个服务在启动类上 `@Import(OutboxConfig.class)` 复用。两个实现细节值得知道：
+
+- 它用 **JdbcTemplate 而非 MyBatis Mapper**。因为放在 mall-common 里的 `@Mapper` 接口
+  不在各服务的组件扫描范围内；若为此给各服务加 `@MapperScan`，会让 MyBatis-Plus 的
+  自动扫描整体退避，**各服务自己原有的 mapper 全部停止注册**（只在启动期炸）。
+  改用 JdbcTemplate 完全绕开这一层，且 `OutboxMetrics` 早已用同样方式读 outbox 表。
+- `OutboxRelayTask` 靠 `@Scheduled` 驱动，因此**每个使用者都必须在启动类上
+  `@EnableScheduling`**——漏掉没有编译期信号，只表现为事件静静堆在表里。
+
+> 装配与事务代理由 `mall-common` 的 `OutboxConfigTest` 守住（不需要数据库）：
+> 它验证 `OutboxConfig` 确实导出两个 bean，且 `OutboxService` 是事务代理——
+> 后者是 `enqueueNewTx` 的 `REQUIRES_NEW` 能否生效的前提。
+
 这根治了「订单已取消/已支付但事件没发出去」的非原子窗口——业务落库与事件入箱要么一起成功，
-要么一起回滚。注意 outbox 表只存在于 **order 与 payment**，这也是 `mall.outbox.pending`
-指标只在这两个服务上注册的原因（见 [operations.md](operations.md#可观测性)）。
+要么一起回滚。outbox 表存在于 **order / payment / inventory** 三库，
+`mall.outbox.pending` 指标也在这三个服务上注册（见 [operations.md](operations.md#可观测性)）。
+
+#### 例外：「业务注定回滚，但事件必须送出」
+
+上面「同事务入箱」的前提是**业务会提交**。库存扣减失败回执是个反例：它产生于
+`lockForOrder` 抛 `StockLockException`、事务**已经回滚**之后。此时若仍用默认传播入箱，
+回执会挂在那同一个即将回滚的事务里被一并撤销，订单永远收不到 `deduct_failed`。
+
+所以 `inventory` 的 `OutboxService` 多了一个 `enqueueNewTx(...)`
+（`@Transactional(propagation = REQUIRES_NEW)`），只为失败回执使用。
+区分规则很简单：**回执描述的是已提交的状态 → 同事务；描述的是被回滚的失败 → 独立事务。**
+
+丢这条回执的后果不只是「晚点取消」：库存本就没锁上，而订单侧 `createPayOrder`
+只校验 `order_status` 不校验库存，买家在超时取消前仍可正常付款，
+订单会带着**零库存**推进到待发货——一条真实的超卖路径。
+这也是它必须比 `inventory.deducted`（order 侧仅记日志）走更严机制的原因。
 
 ### 支付超时延迟消息
 

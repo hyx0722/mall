@@ -42,3 +42,22 @@ CREATE TABLE `inventory_log` (
 ALTER TABLE `inventory_log`
     ADD UNIQUE KEY `uk_order_product_type` (`order_id`,`product_id`,`change_type`);
 
+-- 3. 事务性发件箱（outbox）：扣减结果回执（inventory.deducted / deduct_failed）在此入箱，
+--    由 relay 定时投递到 mall.order.exchange。结构与 order / payment 两库同名表一致。
+--
+--    ⚠️ 存量环境升级：**必须手工执行下面这条 CREATE TABLE**，否则 inventory 服务启动后
+--    relay 每 3 秒会因「表不存在」报错（业务消费本身不受影响，但回执发不出去）。
+CREATE TABLE `outbox` (
+                           `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '发件箱ID',
+                           `exchange`     VARCHAR(100)    NOT NULL COMMENT '目标交换机',
+                           `routing_key`  VARCHAR(100)    NOT NULL COMMENT '目标路由键',
+                           `payload`      TEXT            NOT NULL COMMENT '事件 JSON 原文',
+                           `status`       TINYINT         NOT NULL DEFAULT 0 COMMENT '状态：0-待发送 1-已发送',
+                           `retry_count`  INT             NOT NULL DEFAULT 0 COMMENT '投递失败重试次数',
+                           `delay_ms`     BIGINT          DEFAULT NULL COMMENT '非空则走延迟交换机并附加 per-message TTL(毫秒)',
+                           `created_time` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                           `sent_time`    DATETIME        DEFAULT NULL COMMENT '成功投递时间',
+                           PRIMARY KEY (`id`),
+                           KEY `idx_status_id` (`status`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='事务性发件箱';
+

@@ -27,7 +27,8 @@ RabbitMQ 解耦「下单 → 扣库存 → 支付」链路。
 ```
 mall
 ├── model                      # 契约模块：实体、统一返回 Result、业务异常、领域事件契约、状态枚举
-├── mall-common                # 运行时共享：身份拦截器、Auths 断言、Feign 配置、Rabbit 拓扑、outbox 指标
+├── mall-common                # 运行时共享：身份拦截器、Auths 断言、Feign 配置、Rabbit 拓扑、
+│                              #   事务 outbox 实现、outbox 指标
 ├── mall-gateway               # 网关：路由转发 + JWT 鉴权 + 注入用户身份头
 ├── mall-service               # 业务服务聚合模块
 │   ├── mall-service-user      # 用户 / 收货地址 / 商家上架商品入口
@@ -170,21 +171,22 @@ export JWT_SECRET="$(openssl rand -base64 32)"
 mvn test
 ```
 
-仓库**共 2 个测试**，都用来守「靠约定维持、重构时容易被静默破坏」的不变量：
+仓库**共 3 个测试**，都用来守「靠约定维持、重构时容易被静默破坏」的不变量：
 
 | 模块 | 测试 | 守住什么 |
 | ---- | ---- | ---- |
 | `mall-common` | `IdentityContextTest` | 身份写入 ThreadLocal 后**必须在请求结束被清除**（否则线程池复用会导致越权） |
+| `mall-common` | `OutboxConfigTest` | outbox 装配出正确的事务代理（否则 `enqueueNewTx` 的 `REQUIRES_NEW` 静默失效、丢事件） |
 | `mall-service-inventory` | `InventoryMapperConcurrencyTest` | 并发扣库存**绝不超卖**；释放锁定不能凭空造出库存 |
 
-后者用 Testcontainers 起**真实 MySQL**，**需要本机 Docker 守护进程在运行**。
+最后一个用 Testcontainers 起**真实 MySQL**，**需要本机 Docker 守护进程在运行**（前两个不需要）。
 详见 [docs/operations.md](docs/operations.md#测试)。
 
 ## 可观测性
 
 各服务与网关均接入 actuator（端口即服务端口）：`GET /actuator/health`、`GET /actuator/metrics`。
 
-值得留意的是 `GET /actuator/metrics/mall.outbox.pending`（**outbox 待投递事件数**，仅 order / payment）：
+值得留意的是 `GET /actuator/metrics/mall.outbox.pending`（**outbox 待投递事件数**，order / payment / inventory）：
 outbox 由 relay 定时投递，一旦 relay 停摆或持续投递失败，事件会静静堆在表里而**没有任何外部表征**
 （订单不推进、库存不释放），只能从业务现象倒推。各服务 DLQ 堆积在 RabbitMQ 管理台看。
 

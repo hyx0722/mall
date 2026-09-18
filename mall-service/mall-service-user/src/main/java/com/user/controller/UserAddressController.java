@@ -1,15 +1,14 @@
 package com.user.controller;
 
+import com.mall.common.web.Auths;
 import com.model.bean.Result;
 import com.user.bean.UserAddress;
 import com.user.service.UserAddressService;
-import com.model.util.ThreadLocalUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @Validated
@@ -20,8 +19,8 @@ public class UserAddressController {
     //添加收货信息
     @PostMapping("/addUserAddress")
     public Result addUserAddress(@RequestBody @Validated UserAddress userAddress){
-        Map<String, Object> map = ThreadLocalUtil.get();
-        Long id = (Long) map.get("id");
+        Auths.requireLogin();
+        Long id = Auths.currentUserId();
         userAddress.setUserId(id);
         userAddressService.addUserAddress(userAddress);
         return Result.success();
@@ -49,8 +48,8 @@ public class UserAddressController {
     //查找用户具体所有收货地址
     @GetMapping("/selectUserAddress")
     public Result<List<UserAddress>> selectUserAddress(){
-        Map<String,Object> map = ThreadLocalUtil.get();
-        Long userId = (Long) map.get("id");
+        Auths.requireLogin();
+        Long userId = Auths.currentUserId();
         return Result.success(userAddressService.selectUserAddress(userId));
     }
 

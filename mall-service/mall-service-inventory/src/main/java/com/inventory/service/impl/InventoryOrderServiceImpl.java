@@ -1,11 +1,14 @@
 package com.inventory.service.impl;
 
 import com.inventory.bean.InventoryLog;
+import com.inventory.config.InventoryRabbitConfig;
 import com.inventory.exception.StockLockException;
 import com.inventory.mapper.InventoryLogMapper;
 import com.inventory.mapper.InventoryMapper;
 import com.inventory.service.InventoryOrderService;
+import com.mall.common.outbox.OutboxService;
 import com.model.bean.Inventory;
+import com.model.event.InventoryResultEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -32,10 +35,12 @@ public class InventoryOrderServiceImpl implements InventoryOrderService {
     InventoryMapper inventoryMapper;
     @Autowired
     InventoryLogMapper inventoryLogMapper;
+    @Autowired
+    OutboxService outboxService;
 
     @Override
     @Transactional
-    public void lockForOrder(Long orderId, Map<Long, Integer> productQty) {
+    public void lockForOrder(Long orderId, String orderNo, Map<Long, Integer> productQty) {
         for (Map.Entry<Long, Integer> e : productQty.entrySet()) {
             Long productId = e.getKey();
             Integer qty = e.getValue();
@@ -67,6 +72,13 @@ public class InventoryOrderServiceImpl implements InventoryOrderService {
             logRow.setRemark("下单锁定");
             inventoryLogMapper.insertLog(logRow);
         }
+        // 成功回执与库存锁定同一事务入箱：「库存已锁」与「回执已登记」一起提交或一起回滚。
+        // 原先由监听器在事务外直接 convertAndSend，锁已提交而回执尚未发出时进程崩溃即永久丢失。
+        // 注意重复投递会重复入箱（各商品已跳过、走到这里再登记一条），order 侧处理该回执仅记日志，无害。
+        InventoryResultEvent done = new InventoryResultEvent();
+        done.setOrderNo(orderNo);
+        outboxService.enqueue(InventoryRabbitConfig.ORDER_EXCHANGE,
+                InventoryRabbitConfig.RK_DEDUCTED, null, done);
     }
 
     @Override

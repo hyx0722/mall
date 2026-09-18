@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+
+# 同一分支的旧运行在新提交到来时取消，避免排队堆积
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: 后端构建与测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+
+      # -B 关闭交互；install 而非 verify：model / mall-common 需进本地仓库供各服务解析
+      - name: 构建并运行测试
+        run: ./mvnw -B clean install
+
+      # 测试失败时把 surefire 报告留下，否则只看到一行 "Tests run: ... FAILURE"
+      - name: 上传测试报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports/**'
+          if-no-files-found: ignore
+
+  frontend:
+    name: 前端构建
+    runs-on: ubuntu-latest
+    strategy:
+      # 两个前端互相独立，一个挂了不取消另一个——否则排查时要重跑
+      fail-fast: false
+      matrix:
+        app: [ mall-web, mall-admin ]
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      # npm ci 而非 install：严格按 lockfile 安装，能发现 lockfile 与 package.json 漂移
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 构建
+        run: npm run build

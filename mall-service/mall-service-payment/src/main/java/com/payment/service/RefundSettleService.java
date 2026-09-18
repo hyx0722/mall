@@ -1,5 +1,6 @@
 package com.payment.service;
 
+import com.mall.common.outbox.OutboxService;
 import com.model.event.PayRefundSuccessEvent;
 import com.payment.config.PaymentRabbitConfig;
 import com.payment.entity.PayOrder;

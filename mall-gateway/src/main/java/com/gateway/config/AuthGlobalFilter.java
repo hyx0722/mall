@@ -1,6 +1,7 @@
 package com.gateway.config;
 
 import com.gateway.util.JwtUtil;
+import com.model.constant.RedisKeys;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -58,7 +59,7 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             int role = claims.get("role") instanceof Number r ? r.intValue() : 1;
 
             // 校验登录态仍有效（单设备登录 / 主动失效）
-            String redisToken = stringRedisTemplate.opsForValue().get("login:token:" + id);
+            String redisToken = stringRedisTemplate.opsForValue().get(RedisKeys.loginToken(id));
             if (redisToken == null || !redisToken.equals(token)) {
                 throw new RuntimeException("登录态已失效");
             }

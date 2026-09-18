@@ -1,5 +1,6 @@
 package com.order.service;
 
+import com.mall.common.outbox.OutboxService;
 import com.model.bean.Order;
 import com.model.event.OrderCanceledEvent;
 import com.order.bean.OrderItem;

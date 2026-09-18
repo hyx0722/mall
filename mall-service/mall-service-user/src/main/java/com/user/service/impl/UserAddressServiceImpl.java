@@ -1,6 +1,6 @@
 package com.user.service.impl;
 
-import com.model.util.ThreadLocalUtil;
+import com.mall.common.web.Auths;
 import com.user.bean.UserAddress;
 import com.user.mapper.UserAddressMapper;
 import com.user.service.UserAddressService;
@@ -11,7 +11,6 @@ import org.springframework.stereotype.Service;
 
 
 import java.util.List;
-import java.util.Map;
 
 @Service
 public class UserAddressServiceImpl implements UserAddressService {
@@ -23,21 +22,21 @@ public class UserAddressServiceImpl implements UserAddressService {
     };
 
     public void updateUserAddressById(UserAddress userAddress, Long id){
-        Map<String,Object> map = ThreadLocalUtil.get();
-        Long userId = (Long) map.get("id");
+        Auths.requireLogin();
+        Long userId = Auths.currentUserId();
         userAddressMapper.updateUserAddressById(userAddress,id,userId);
     }
 
     public void deleteUserAddress(Long id){
-        Map<String,Object> map = ThreadLocalUtil.get();
-        Long userId = (Long) map.get("id");
+        Auths.requireLogin();
+        Long userId = Auths.currentUserId();
         // 仅按 id+归属条件删除，禁止越权删他人地址（勿用 BaseMapper.deleteById）
         userAddressMapper.deleteUserAddress(id,userId);
     }
 
     public UserAddress selectUserDetailAddress(Long id){
-        Map<String,Object> map = ThreadLocalUtil.get();
-        Long userId = (Long) map.get("id");
+        Auths.requireLogin();
+        Long userId = Auths.currentUserId();
         return userAddressMapper.selectUserDetailAddress(id,userId);
     };
 

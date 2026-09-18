@@ -34,7 +34,7 @@ mall
 ├── model                      # 契约模块：实体 bean、统一返回 Result、BusinessException、
 │                              #   全局异常处理、领域事件契约、状态枚举、线程上下文工具
 ├── mall-common                # 运行时共享模块：身份拦截器、Auths 断言、Feign 公共配置、
-│                              #   Rabbit 拓扑常量、outbox 指标（业务服务 @Import 复用）
+│                              #   Rabbit 拓扑常量、事务 outbox 实现、outbox 指标（@Import 复用）
 ├── mall-gateway               # 网关：路由转发 + JWT 鉴权 + 注入用户身份头
 ├── mall-service               # 业务服务聚合模块
 │   ├── mall-service-user      # 用户 / 收货地址 / 商家上架商品入口
@@ -55,9 +55,15 @@ mall
 | 模块 | 内容 | 依赖约束 |
 | ---- | ---- | ---- |
 | `model` | `bean/`（实体、`PageBean`、`Result`）、`enums/`（`OrderStatus`、`RefundAuditStatus`）、`event/`（**跨服务事件契约**）、`exception/BusinessException`、`web/GlobalExceptionHandler`、`util/ThreadLocalUtil` | 只依赖 `spring-web` + `slf4j-api`。**刻意不引 servlet-api**——凡继承 `jakarta.servlet.*` 的异常（如 `MissingServletRequestParameterException`）都不能塞进这里的共享 advice，否则编译不过 |
-| `mall-common` | `web/IdentityInterceptor`、`web/Auths`、`web/CommonWebConfig`、`feign/CommonFeignConfig`、`feign/FeignIdentityInterceptor`、`rabbit/RabbitTopology`、`metrics/OutboxMetrics` | 面向 servlet/WebMVC 的业务服务。**网关不依赖它**（网关是 WebFlux，两者技术栈不通） |
+| `mall-common` | `web/IdentityInterceptor`、`web/Auths`、`web/CommonWebConfig`、`feign/CommonFeignConfig`、`feign/FeignIdentityInterceptor`、`rabbit/RabbitTopology`、`outbox/OutboxConfig`（事务 outbox 的三服务共用实现）、`metrics/OutboxMetrics` | 面向 servlet/WebMVC 的业务服务。**网关不依赖它**（网关是 WebFlux，两者技术栈不通） |
 
 > 依赖方向：业务服务 → `mall-common` → `model`。事件契约放 `model` 是为了让发布方与消费方共享同一个类。
+>
+> **网关是唯一的例外**：它依赖 `model`（且只为了 `model.constant.RedisKeys`——登录态键
+> 由 user 写入却由网关读取校验，两端必须逐字一致），但**不依赖 `mall-common`**。
+> 这条依赖是安全的：`model` 只依赖 `spring-web` + `slf4j-api`，都是 WebFlux 已有的；
+> 它里面的 servlet 系 `GlobalExceptionHandler` 位于 `com.model` 包，网关只扫 `com.gateway`，
+> 不会被注册。**不要往 `model` 里加 servlet 依赖**，否则网关会连带引入 servlet 栈而启动失败。
 
 业务服务（`mall-service/pom.xml`）统一继承：`model`、`mall-common`、`spring-boot-starter-web`、actuator、
 `mysql-connector-j`、`druid-spring-boot-4-starter`、`spring-boot-starter-data-redis`、
@@ -106,7 +112,13 @@ loadbalancer、Sentinel。
 - 静态路由（见下）
 - `jwt.secret: ${JWT_SECRET:}`（从环境变量注入）
 - `spring.data.redis`（校验登录态用）
+- `cors.allowed-origins`（默认两个前端 dev 端口，见 [CorsConfig](../mall-gateway/src/main/java/com/gateway/config/CorsConfig.java)）
 - actuator 暴露 `health,info,metrics`
+
+> **跨域**：开发期两个前端走 Vite 代理属同源，用不到 CORS；部署 `dist` 产物到其它域名/端口时才需要。
+> `CorsWebFilter` 是 WebFilter，跑在网关过滤器链之前并会短路掉合法预检，
+> 因此不带 `Authorization` 的 `OPTIONS` 预检不会被 `AuthGlobalFilter` 当成未登录请求拒掉。
+> **`allowed-origins` 不要改成 `*`**——与 `allowCredentials` 冲突且等于对全站开放。
 
 > Spring Cloud Gateway 5.x 的静态路由前缀是 `spring.cloud.gateway.server.webflux.routes`，
 > 旧的 `spring.cloud.gateway.routes` **已不再识别**。

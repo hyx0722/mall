@@ -4,6 +4,7 @@ import com.mall.common.web.Auths;
 import com.model.bean.PageBean;
 import com.model.bean.Result;
 import com.model.bean.User;
+import com.model.constant.RedisKeys;
 import com.user.bean.UserAdminResetPwdRequest;
 import com.user.bean.UserAdminUpdateRequest;
 import com.user.service.UserAdminService;
@@ -48,7 +49,7 @@ public class UserAdminController {
         boolean revoke = (req.getStatus() != null && req.getStatus() == 0)
                 || (req.getRole() != null && req.getRole() == 1);
         if (revoke) {
-            stringRedisTemplate.delete("login:token:" + req.getId());
+            stringRedisTemplate.delete(RedisKeys.loginToken(req.getId()));
         }
         return Result.success();
     }
@@ -58,7 +59,7 @@ public class UserAdminController {
     public Result resetPwd(@RequestBody @Validated UserAdminResetPwdRequest req) {
         Auths.requireAdmin();
         userAdminService.adminResetPwd(Auths.currentUserId(), req.getId(), req.getNewPassword());
-        stringRedisTemplate.delete("login:token:" + req.getId());
+        stringRedisTemplate.delete(RedisKeys.loginToken(req.getId()));
         return Result.success();
     }
 

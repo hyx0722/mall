@@ -19,11 +19,14 @@ spring:
 
 server:
   port: 9001
-# JWT 签名密钥：由环境变量 JWT_SECRET 注入，仓库内不再保留密钥值。
-# 未提供（或短于 32 字符）时启动即失败，见 com.user.util.JwtUtil 的构造校验。
+# JWT 签名密钥：由环境变量 JWT_SECRET 注入，仓库内不保留任何默认值。
+# ⚠️ 这里**故意不写默认值**（`:${JWT_SECRET:}` 而非 `${JWT_SECRET:某个值}`）：
+#    一旦留了默认值，JwtUtil 的长度校验就形同虚设（默认值 ≥32 字符会直接通过），
+#    服务会带着一个仓库里人人可见的密钥正常启动——任何人都能离线签出合法 token
+#    并伪装成管理员。留空时 JwtUtil 构造即抛「未配置 JWT 密钥」，挡在启动阶段。
 # 必须与 mall-gateway 的取值一致；生成一个：openssl rand -base64 32
 jwt:
-  secret: ${JWT_SECRET:pfqydNQjrw39d5g0kRUjtEl4kpF+sV2qzMVBsRKO6Cw=}
+  secret: ${JWT_SECRET:}
 # 启动时若库中不存在管理员，则按以下账号自动创建（登录后可改密）
 mall:
   admin:
