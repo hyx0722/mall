@@ -1,5 +1,6 @@
 package com.inventory;
 
+import com.mall.common.logging.LogCleanupConfig;
 import com.mall.common.metrics.OutboxMetricsConfig;
 import com.mall.common.outbox.OutboxConfig;
 import com.mall.common.web.CommonWebConfig;
@@ -17,7 +18,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EnableScheduling
 @EnableFeignClients
 @EnableDiscoveryClient
-@Import({GlobalExceptionHandler.class, CommonWebConfig.class,
+@Import({GlobalExceptionHandler.class, CommonWebConfig.class, LogCleanupConfig.class,
         OutboxMetricsConfig.class, OutboxConfig.class})
 public class MallServiceInventoryApplication {
     public static void main(String[] args) {

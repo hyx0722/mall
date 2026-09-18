@@ -17,6 +17,22 @@ spring:
 server:
   port: 9002
 
+# 日志：按服务名**分目录**落到 logs/<服务名>/。路径相对**进程工作目录**——IDE 里跑可能落在模块目录，
+# 那时用 LOG_DIR 环境变量指到项目根（例如 E:\...\mall\logs）。
+# 滚动与保留由 Logback 负责（它才删得掉已关闭的历史文件），定时任务只做兜底清扫。
+logging:
+  file:
+    name: ${LOG_DIR:logs}/${spring.application.name}/${spring.application.name}.log
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 3
+      total-size-cap: 100MB
+mall:
+  log:
+    retention-minutes: 1440     # 保留 24 小时，早于此的文件才会被清扫任务删
+    cleanup-interval-ms: 600000 # 每 10 分钟扫一轮
+
 management:
   endpoints:
     web:
