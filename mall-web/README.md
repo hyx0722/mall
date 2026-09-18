@@ -32,11 +32,18 @@ src/
 │               #   address/auth/cart/inventory/order/pay/product/user/request
 ├── stores/     # 登录态（token/username）响应式 + localStorage 持久化
 ├── router/     # /login /register 公开，其余全部 requiresAuth（路由守卫）
-├── views/      # 14 个页面：登录注册、商品列表/详情/店铺、购物车、结算、支付、
-│               #   我的订单/订单详情、个人中心、地址管理、
-│               #   商家中心/商家订单（发货与退款审核）
-└── components/ # ProductCard 商品卡片
+├── views/      # 18 个页面：登录注册、商品列表/详情/店铺、购物车、结算、支付、
+│               #   我的订单/订单详情、个人中心、地址管理、优惠券/背包、
+│               #   商家中心/商家订单（发货与退款审核）/商家优惠券/商店数据看板
+└── components/ # ProductCard 商品卡片、LineChart 折线图（echarts 封装）
 ```
 
-> 卖家页面（`/seller`、`/seller/orders`）在前端只做「已登录」校验，**归属与角色由后端接口把关**
-> （商家只能操作自己名下的商品与订单）。
+> 卖家页面（`/seller`、`/seller/orders`、`/seller/coupons`、`/seller/stats`）在前端只做「已登录」校验，
+> **归属与角色由后端接口把关**（商家只能操作自己名下的商品与订单）。
+
+看板页 `/seller/stats` 不新增后端接口：直接复用 `GET /order/seller/orders`（含本店商品的订单
++ 本店明细行）与 `GET /product/findProductByUserId`（商品总数），在前端按天聚合成折线。
+统计口径排除已取消 / 已退款订单，销售额与件数按本店商品明细行合计（混单时不含他人商品）。
+
+图表库为 **echarts**（按需引入 `echarts/core` + LineChart/Grid/Tooltip/Legend + CanvasRenderer），
+只在该路由懒加载的 chunk 里，不影响首屏体积。

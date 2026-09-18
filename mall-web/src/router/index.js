@@ -33,6 +33,8 @@ const routes = [
   { path: '/seller/orders', name: 'seller-orders', component: () => import('../views/SellerOrders.vue'), meta: { requiresAuth: true } },
   // 卖家中心：给自己的商品发券
   { path: '/seller/coupons', name: 'seller-coupons', component: () => import('../views/SellerCoupons.vue'), meta: { requiresAuth: true } },
+  // 卖家中心：商品与订单数据看板（折线图）
+  { path: '/seller/stats', name: 'seller-stats', component: () => import('../views/SellerStats.vue'), meta: { requiresAuth: true } },
 ]
 
 const router = createRouter({

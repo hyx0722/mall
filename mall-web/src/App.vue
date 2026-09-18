@@ -24,6 +24,7 @@ const ACTIVE_MAP = {
   seller: '/seller',
   'seller-orders': '/seller',
   'seller-coupons': '/seller',
+  'seller-stats': '/seller/stats',
   profile: '/profile',
   address: '/address',
 }
@@ -59,6 +60,21 @@ function onUserCommand(cmd) {
         <el-menu-item index="/cart">购物车</el-menu-item>
         <el-menu-item index="/orders">我的订单</el-menu-item>
         <el-menu-item index="/seller">我的商品</el-menu-item>
+        <el-menu-item index="/seller/stats">
+          <span class="dot-icon" aria-hidden="true">
+            <svg viewBox="0 0 16 16" width="10" height="10">
+              <polyline
+                points="1,11 5,7 8,10 15,2"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
+          我的商店数据
+        </el-menu-item>
       </el-menu>
       <div class="user-box">
         <template v-if="username">
@@ -127,6 +143,20 @@ body {
   flex: 1;
   border-bottom: none;
   min-width: 0;
+}
+/* 「我的商店数据」入口前的圆形图标 */
+.dot-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #2a78d6;
+  color: #fff;
+  flex-shrink: 0;
+  vertical-align: middle;
 }
 .user-box {
   display: flex;
