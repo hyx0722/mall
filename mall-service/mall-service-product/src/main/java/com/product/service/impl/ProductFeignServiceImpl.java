@@ -4,10 +4,13 @@ import com.model.bean.Product;
 import com.model.exception.BusinessException;
 import com.product.bean.Category;
 import com.product.bean.ProductUpdateRequest;
+import com.product.config.ProductCacheConfig;
 import com.product.mapper.CategoryMapper;
 import com.product.mapper.ProductFeignMapper;
 import com.product.service.ProductFeignService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +23,7 @@ public class ProductFeignServiceImpl implements ProductFeignService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = ProductCacheConfig.C_PRODUCT_PAGE, allEntries = true)
     public void addNumProduct(Product product) {
         productFeignMapper.addNumProduct(product);
     }
@@ -31,6 +35,13 @@ public class ProductFeignServiceImpl implements ProductFeignService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            // 改的可能是价格/名称/状态，详情必须失效——下单路径会快照这里的 price
+            @CacheEvict(cacheNames = ProductCacheConfig.C_PRODUCT, key = "#r.id"),
+            // 列表键是分页组合、无法枚举，只能整区清空。代价是任一商品编辑清空整个浏览缓存；
+            // 这个负载下正确性优先。真在意的话正确做法是拆缓存区，而不是去猜键。
+            @CacheEvict(cacheNames = ProductCacheConfig.C_PRODUCT_PAGE, allEntries = true)
+    })
     public void updateProduct(Long userId, ProductUpdateRequest r) {
         if (userId == null) {
             throw new BusinessException("请先登录");
@@ -74,6 +85,10 @@ public class ProductFeignServiceImpl implements ProductFeignService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = ProductCacheConfig.C_PRODUCT, key = "#id"),
+            @CacheEvict(cacheNames = ProductCacheConfig.C_PRODUCT_PAGE, allEntries = true)
+    })
     public void changeProductStatus(Long userId, Long id, Integer status) {
         if (userId == null) {
             throw new BusinessException("请先登录");

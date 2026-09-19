@@ -8,4 +8,18 @@
     </parent>
     <artifactId>mall-service-product</artifactId>
 
+    <dependencies>
+        <!--
+            Spring Cache 抽象（@Cacheable/@CacheEvict/@EnableCaching）。
+            ⚠️ 只加在本模块，不要上提到 mall-service 聚合 pom：其余四个服务没有任何缓存注解，
+               加了只会给它们白多出一个 RedisCacheManager 和一组 caches 端点，扩大爆炸半径。
+            ⚠️ Boot 4 的 spring-boot-starter-data-redis 已不再传递本依赖，必须显式声明。
+               版本由父 pom 的 Boot BOM 管理，不要写死。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+    </dependencies>
+
 </project>

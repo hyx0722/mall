@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.util.Collection;
 import java.util.List;
 
 @Mapper
@@ -30,4 +31,20 @@ public interface ShippingMapper {
     // 某订单已发货的卖家数（与 order_item join product 算出的总卖家数比对，判断是否「最后一卖」）
     @Select("select count(distinct seller_id) from shipping where order_id=#{orderId}")
     long countShippedSellers(@Param("orderId") Long orderId);
+
+    /**
+     * {@link #selectByOrderAndSeller} 的批量版本：一次取回一批订单里本卖家的发货单。
+     *
+     * uk_order_seller 保证每 (order_id, seller_id) 至多一条，因此调用方可以放心按
+     * orderId 收进 Map，不会互相覆盖。
+     *
+     * ⚠️ 调用方必须先挡空集合：`in ()` 是 SQL 语法错误。
+     */
+    @Select("<script>" +
+            "select id,ship_no,order_id,seller_id,logistics_company,tracking_no,remark,created_time " +
+            "from shipping where seller_id=#{sellerId} and order_id in " +
+            "<foreach collection='orderIds' item='oid' open='(' separator=',' close=')'>#{oid}</foreach>" +
+            "</script>")
+    List<Shipping> selectByOrderIdsAndSeller(@Param("orderIds") Collection<Long> orderIds,
+                                             @Param("sellerId") Long sellerId);
 }

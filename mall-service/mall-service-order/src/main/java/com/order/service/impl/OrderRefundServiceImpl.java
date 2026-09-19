@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -73,7 +74,10 @@ public class OrderRefundServiceImpl implements OrderRefundService {
         refund.setOrderId(orderId);
         refund.setOrderNo(order.getOrderNo());
         refund.setUserId(userId);
-        refund.setRefundAmount(order.getTotalAmount());
+        // 退款只能退「真的收过的钱」：total_amount 是原价合计，优惠另记在 discount_amount，
+        // 支付侧按 total-discount 收款（见 PayOrderServiceImpl.payableAmount）。
+        // 若这里用 totalAmount，用券订单会把优惠金额一起退给买家。
+        refund.setRefundAmount(netPaidAmount(order));
         refund.setRefundReason(reason);
         orderRefundMapper.insertRefund(refund);
         log.info("[order] 买家 {} 对订单 {} 申请退款 refundNo={} amount={}",
@@ -228,6 +232,23 @@ public class OrderRefundServiceImpl implements OrderRefundService {
         event.setRefundReason(refund.getRefundReason());
         event.setRejectReason(rejectReason);
         return event;
+    }
+
+    /**
+     * 订单实付金额 = 原价合计 − 优惠抵扣，且不返回负数。
+     *
+     * 与 payment 侧 {@code PayOrderServiceImpl.payableAmount} 保持同一口径：
+     * 退款金额必须等于实际收款金额，否则用券订单会多退「优惠掉的那部分」。
+     * 包级可见是为了让纯计算测试直接覆盖，不必起 Spring 上下文。
+     */
+    static BigDecimal netPaidAmount(Order order) {
+        if (order == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal total = order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount();
+        BigDecimal discount = order.getDiscountAmount() == null ? BigDecimal.ZERO : order.getDiscountAmount();
+        BigDecimal paid = total.subtract(discount);
+        return paid.signum() < 0 ? BigDecimal.ZERO : paid;
     }
 
     /** 退款单号：RF + 时间戳 + 4 位随机 + 4 位用户尾号（与订单号同款生成方式） */

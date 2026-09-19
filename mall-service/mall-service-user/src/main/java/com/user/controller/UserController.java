@@ -49,6 +49,7 @@ public class UserController {
             return Result.error("注册失败用户已经存在");
         }
         userService.registerInsert(username, password);
+        log.info("用户:{}注册成功",username);
         return Result.success();
     }
 
@@ -83,6 +84,7 @@ public class UserController {
                     1,
                     TimeUnit.HOURS
             );
+            log.info("用户:{}登录成功",username);
             return Result.success(token);
         }
         return Result.error("密码错误");
@@ -116,6 +118,7 @@ public class UserController {
         userService.delete(username);
         //清理该用户的登录token，使其立即失效
         stringRedisTemplate.delete(RedisKeys.loginToken(id));
+        log.info("用户:{}注销了自己的账户!!!",username);
         return Result.success("该用户删除.");
     }
 

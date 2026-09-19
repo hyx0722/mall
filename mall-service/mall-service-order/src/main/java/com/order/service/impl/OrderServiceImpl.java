@@ -35,8 +35,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Service
@@ -277,22 +281,61 @@ public class OrderServiceImpl implements OrderService {
         orderCancelService.enqueueCanceledForOrder(orderId);
     }
 
+    /**
+     * 卖家订单列表。
+     *
+     * 查询数刻意与订单数**解耦**（固定 1 + 最多 3 条，而不是 1 + 3N）：明细、混单判断、发货单
+     * 各用一条批量查询取回后在内存分组。原实现逐单查这三样，订单一多就是典型的 N+1。
+     *
+     * 其中「混单判断」还额外做了短路——它只在订单处于**待付款**时才影响结果
+     * （非待付款时 cancellable 恒为 false，查询结果根本用不到），所以只对 waitPayIds 发起，
+     * 且该集合为空时整条查询都不发。这省掉的是原实现里每单都跑的那条 count。
+     */
     @Override
     public List<SellerOrderVO> sellerOrders(Long userId) {
         if (userId == null) {
             throw new BusinessException("请先登录");
         }
         List<Order> orders = orderMapper.findSellerOrders(userId);
-        List<SellerOrderVO> result = new ArrayList<>();
+        if (orders.isEmpty()) {
+            // 必须先挡空集合：下面三条批量 SQL 的 `in ()` 是语法错误
+            return List.of();
+        }
+
+        LinkedHashSet<Long> orderIds = new LinkedHashSet<>();
+        LinkedHashSet<Long> waitPayIds = new LinkedHashSet<>();
+        for (Order order : orders) {
+            orderIds.add(order.getId());
+            if (OrderStatus.is(order.getOrderStatus(), OrderStatus.WAIT_PAY)) {
+                waitPayIds.add(order.getId());
+            }
+        }
+
+        // 属于我的明细行，按 orderId 分组（批量查询已按 oi.order_id, oi.id 排序，故单内次序不变）
+        Map<Long, List<OrderItem>> itemsByOrder = new HashMap<>();
+        for (OrderItem item : orderItemMapper.selectMyItemsByOrderIds(orderIds, userId)) {
+            itemsByOrder.computeIfAbsent(item.getOrderId(), k -> new ArrayList<>()).add(item);
+        }
+
+        // 本商家的发货单（缺省=未发货，卖家端据此判断是否显示「发货」操作）
+        Map<Long, Shipping> shipInfoByOrder = new HashMap<>();
+        for (Shipping shipping : shippingMapper.selectByOrderIdsAndSeller(orderIds, userId)) {
+            shipInfoByOrder.put(shipping.getOrderId(), shipping);
+        }
+
+        // 含其它卖家商品的订单（混单）不可由本商家整单取消
+        Set<Long> foreignOrderIds = waitPayIds.isEmpty()
+                ? Set.of()
+                : new HashSet<>(orderMapper.selectOrderIdsWithForeignItemLines(waitPayIds, userId));
+
+        List<SellerOrderVO> result = new ArrayList<>(orders.size());
         for (Order order : orders) {
             SellerOrderVO vo = new SellerOrderVO();
             vo.setOrder(order);
-            vo.setItems(orderItemMapper.selectMyItems(order.getId(), userId));
-            // 混单（含其它卖家的商品）不可由本商家整单取消
-            boolean hasForeign = orderMapper.countForeignItemLines(order.getId(), userId) > 0;
-            vo.setCancellable(OrderStatus.is(order.getOrderStatus(), OrderStatus.WAIT_PAY) && !hasForeign);
-            // 本商家的发货单（null=未发货，用于卖家端判断是否显示「发货」操作）
-            vo.setShipInfo(shippingMapper.selectByOrderAndSeller(order.getId(), userId));
+            vo.setItems(itemsByOrder.getOrDefault(order.getId(), List.of()));
+            boolean waitPay = OrderStatus.is(order.getOrderStatus(), OrderStatus.WAIT_PAY);
+            vo.setCancellable(waitPay && !foreignOrderIds.contains(order.getId()));
+            vo.setShipInfo(shipInfoByOrder.get(order.getId()));
             result.add(vo);
         }
         return result;

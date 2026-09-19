@@ -1,5 +1,6 @@
 package com.mall.common.outbox;
 
+import com.mall.common.metrics.OutboxMeters;
 import com.model.bean.Outbox;
 // Spring Boot 4 的托管 Mapper 是 Jackson 3（tools.jackson），不再是 Jackson 2（com.fasterxml）
 import tools.jackson.databind.ObjectMapper;
@@ -68,19 +69,42 @@ public class OutboxServiceImpl implements OutboxService {
     private static final String MARK_RETRIED_SQL =
             "update outbox set retry_count=retry_count+1 where id=?";
 
-    // 无法路由：累加计数，达上限置 3-已放弃。status<>3 避免已放弃的行被重复处理
-    private static final String MARK_UNROUTABLE_SQL =
-            "update outbox set status = case when retry_count + 1 >= ? then 3 else 0 end, "
-                    + "retry_count = retry_count + 1, sent_time = null where id=? and status<>3";
+    // 无法路由：累加计数（已放弃的行不动，status<>3 避免重复处理）
+    //
+    // 为什么拆成两条而不是原来那条 CASE UPDATE：单条 CASE 无法告诉调用方
+    // 「本次是否就是翻转到 3 的那一次」，于是 mall.outbox.abandoned 只能靠猜（比如每次调用都计数，
+    // 会因重复回调而虚增）。拆开后第二条 UPDATE 的返回值恰好就是「本次发生了 0->3 翻转」，
+    // 计数因此精确；且它带 status=0 条件，重复调用返回 0，天然幂等。
+    private static final String MARK_UNROUTABLE_BUMP_SQL =
+            "update outbox set retry_count = retry_count + 1, sent_time = null where id=? and status<>3";
+
+    private static final String MARK_UNROUTABLE_ABANDON_SQL =
+            "update outbox set status = 3 where id=? and status = 0 and retry_count >= ?";
+
+    // 管理端：查看已放弃的行。不选 payload（见 AbandonedOutbox 的说明）
+    private static final String SELECT_ABANDONED_SQL =
+            "select id, exchange, routing_key, retry_count, created_time from outbox "
+                    + "where status = 3 order by id limit ?";
+
+    // 管理端：重投已放弃的行。status=3 条件保证幂等（重复调用影响 0 行）；
+    // MySQL 允许单表 UPDATE 带 ORDER BY / LIMIT。
+    // 刻意不改 created_time：保留原始入箱时间，便于判断这批事件搁置了多久。
+    // relayPending 只捞 status=0，故翻回 0 后下一轮 relay 即会领取。
+    private static final String REQUEUE_ABANDONED_SQL =
+            "update outbox set status = 0, retry_count = 0, sent_time = null "
+                    + "where status = 3 order by id limit ?";
 
     private final JdbcTemplate jdbcTemplate;
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
+    private final OutboxMeters outboxMeters;
 
-    public OutboxServiceImpl(DataSource dataSource, RabbitTemplate rabbitTemplate, ObjectMapper objectMapper) {
+    public OutboxServiceImpl(DataSource dataSource, RabbitTemplate rabbitTemplate, ObjectMapper objectMapper,
+                             OutboxMeters outboxMeters) {
         this.jdbcTemplate = new JdbcTemplate(dataSource);
         this.rabbitTemplate = rabbitTemplate;
         this.objectMapper = objectMapper;
+        this.outboxMeters = outboxMeters;
     }
 
     @Override
@@ -168,21 +192,57 @@ public class OutboxServiceImpl implements OutboxService {
 
     @Override
     public void markDelivered(Long id) {
-        jdbcTemplate.update(MARK_SENT_SQL, id);
+        // 只在真的把一行从 0 翻到 1 时计数：发布确认是 correlated 模式，重复 ack 属正常现象，
+        // 每次回调都计数会让 delivered 虚增，失去与 pending 对照的意义
+        if (jdbcTemplate.update(MARK_SENT_SQL, id) == 1) {
+            outboxMeters.delivered();
+        }
     }
 
     @Override
     public void markRejected(Long id, String cause) {
         // nack：可能是暂时性的（broker 内部错误/队列满），保持待发送并无限重试
         jdbcTemplate.update(MARK_RETRIED_SQL, id);
+        // 无需判断返回值：MARK_RETRIED_SQL 没有 status 条件，命中即计数
+        outboxMeters.nack();
         log.warn("[outbox] broker 拒绝(nack) id={} cause={}，保持待发送留待重投", id, cause);
     }
 
     @Override
+    public List<AbandonedOutbox> listAbandoned(int limit) {
+        return jdbcTemplate.query(SELECT_ABANDONED_SQL, (rs, rowNum) -> new AbandonedOutbox(
+                rs.getLong("id"),
+                rs.getString("exchange"),
+                rs.getString("routing_key"),
+                rs.getInt("retry_count"),
+                rs.getTimestamp("created_time").toLocalDateTime()
+        ), limit);
+    }
+
+    @Override
+    public int requeueAbandoned(int limit) {
+        int requeued = jdbcTemplate.update(REQUEUE_ABANDONED_SQL, limit);
+        if (requeued > 0) {
+            log.warn("[outbox] 管理端重投已放弃事件 {} 条，下一轮 relay 将领取", requeued);
+        }
+        return requeued;
+    }
+
+    @Override
+    @Transactional
     public void markUnroutable(Long id, String cause) {
-        // 无法路由：路由配置错误，重试不会成功，故有上限地放弃
-        jdbcTemplate.update(MARK_UNROUTABLE_SQL, MAX_UNROUTABLE_RETRIES, id);
-        log.error("[outbox] 消息无法路由 id={} cause={}，已达 {} 次上限的将置为 3-已放弃",
-                id, cause, MAX_UNROUTABLE_RETRIES);
+        // 无法路由：路由配置错误，重试不会成功，故有上限地放弃。
+        // 两条语句同批执行，避免「计数已加、放弃未置」的中间态被旁人看到。
+        jdbcTemplate.update(MARK_UNROUTABLE_BUMP_SQL, id);
+        // 返回 1 表示本次调用恰好完成了 0->3 的翻转——这才是「放弃了一条」的准确时刻
+        if (jdbcTemplate.update(MARK_UNROUTABLE_ABANDON_SQL, id, MAX_UNROUTABLE_RETRIES) == 1) {
+            outboxMeters.abandoned();
+            log.error("[outbox] 消息无法路由 id={} cause={}，已达 {} 次上限，置为 3-已放弃；"
+                            + "修好路由键与队列绑定后调 POST /admin/outbox/requeue 重投",
+                    id, cause, MAX_UNROUTABLE_RETRIES);
+        } else {
+            log.error("[outbox] 消息无法路由 id={} cause={}，重试计数已累加（上限 {}），将继续重试",
+                    id, cause, MAX_UNROUTABLE_RETRIES);
+        }
     }
 }

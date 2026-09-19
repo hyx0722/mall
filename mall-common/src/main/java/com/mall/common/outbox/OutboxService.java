@@ -1,5 +1,7 @@
 package com.mall.common.outbox;
 
+import java.util.List;
+
 /**
  * 事务性发件箱：业务方法与事件发布同事务入库，relay 定时投递到 RabbitMQ。
  *
@@ -47,4 +49,29 @@ public interface OutboxService {
 
     /** 消息被退回（mandatory 命中，交换机无队列可路由）→ 累加计数，超上限置「已放弃」 */
     void markUnroutable(Long id, String cause);
+
+    /*
+     * 以下两个方法**仅供管理端**（OutboxAdminController，/admin/outbox/**，管理员才可调用）。
+     * 它们不参与业务链路，也不要放进 relay。
+     */
+
+    /**
+     * 列出已放弃（status=3）的行，按 id 升序，最多 limit 条。
+     *
+     * 「已放弃」只可能由路由键与队列绑定不匹配导致（连接异常/nack 走的是无限重试那条路），
+     * 修好绑定前重投也不会成功，所以列表里带上 exchange/routingKey 供核对。
+     */
+    List<AbandonedOutbox> listAbandoned(int limit);
+
+    /**
+     * 把已放弃的行重投：status 3 → 0 并清零 retry_count，下一轮 relay（3s 内）会自动领取。
+     *
+     * 幂等性来自 SQL 的 {@code where status=3} 条件——重复调用影响 0 行，不会把同一批翻两次；
+     * 有界性来自 {@code limit}，一次调用不可能把整个积压翻过来冲垮 broker。
+     * 不会碰 status=0/1 的活跃行，也不会改动 created_time（保留原始入箱时间）。
+     *
+     * @param limit 本次最多重投多少条
+     * @return 本次**实际**重投的条数（重复调用返回 0）
+     */
+    int requeueAbandoned(int limit);
 }

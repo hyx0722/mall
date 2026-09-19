@@ -4,11 +4,11 @@ import com.mall.common.web.Auths;
 import com.model.bean.CouponPreviewRequest;
 import com.model.bean.CouponPreviewResult;
 import com.model.bean.Result;
-import com.user.bean.Coupon;
 import com.user.bean.UserCoupon;
 import com.user.service.CouponService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,6 +29,7 @@ import java.util.List;
  * 不是给前端直接调的——它们同样要求登录态，但语义上属于服务间契约：
  * order 的 FeignIdentityInterceptor 会把 Authorization 与 X-User-* 一并透传过来。
  */
+@Slf4j
 @RestController
 @Validated
 public class CouponController {

@@ -2,9 +2,12 @@ package com.product.service.impl;
 
 import com.model.exception.BusinessException;
 import com.product.bean.Category;
+import com.product.config.ProductCacheConfig;
 import com.product.mapper.CategoryMapper;
 import com.product.service.CategoryService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -22,12 +25,14 @@ public class CategoryServiceImpl implements CategoryService {
     CategoryMapper categoryMapper;
 
     @Override
+    @Cacheable(cacheNames = ProductCacheConfig.C_CATEGORY,
+            key = "T(com.product.config.ProductCacheConfig).parentKey(#parentId)")
     public List<Category> listEnabledByParent(Long parentId) {
-        Long p = (parentId == null || parentId < 0) ? 0L : parentId;
-        return categoryMapper.listEnabledByParent(p);
+        return categoryMapper.listEnabledByParent(ProductCacheConfig.normParentId(parentId));
     }
 
     @Override
+    @Cacheable(cacheNames = ProductCacheConfig.C_CATEGORY, key = "'tree'")
     public List<Category> tree() {
         List<Category> all = categoryMapper.listEnabledAll();
         if (all == null || all.isEmpty()) {
@@ -48,6 +53,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
+    @CacheEvict(cacheNames = ProductCacheConfig.C_CATEGORY, allEntries = true)
     public Category add(Category category) {
         normalize(category);
         validateParent(category.getParentId(), null);
@@ -59,6 +65,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
+    @CacheEvict(cacheNames = ProductCacheConfig.C_CATEGORY, allEntries = true)
     public void update(Category category) {
         if (category.getId() == null) {
             throw new BusinessException("缺少分类 id");

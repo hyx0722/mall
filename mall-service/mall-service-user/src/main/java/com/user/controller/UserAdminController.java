@@ -8,6 +8,7 @@ import com.model.constant.RedisKeys;
 import com.user.bean.UserAdminResetPwdRequest;
 import com.user.bean.UserAdminUpdateRequest;
 import com.user.service.UserAdminService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.validation.annotation.Validated;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
  * 全部接口要求管理员（Auths.requireAdmin，角色来自本地 LoginInterceptor 解析 JWT claims）。
  * 经网关访问：/user/admin/listUsers 等。
  */
+@Slf4j
 @RestController
 @Validated
 public class UserAdminController {
@@ -45,6 +47,7 @@ public class UserAdminController {
         String email = blankToNull(req.getEmail());
         String phone = blankToNull(req.getPhone());
         userAdminService.adminUpdate(operatorId, req.getId(), req.getStatus(), req.getRole(), email, phone);
+        log.info("管理员{}修改了id为{}的用户",operatorId,req.getId());
         // 禁用或取消管理员后，目标旧 token 立即失效（避免降权后仍带旧角色头访问）
         boolean revoke = (req.getStatus() != null && req.getStatus() == 0)
                 || (req.getRole() != null && req.getRole() == 1);
@@ -60,6 +63,7 @@ public class UserAdminController {
         Auths.requireAdmin();
         userAdminService.adminResetPwd(Auths.currentUserId(), req.getId(), req.getNewPassword());
         stringRedisTemplate.delete(RedisKeys.loginToken(req.getId()));
+        log.info("管理员{}重置了了id为{}的用户的密码",Auths.currentUserId(),req.getId());
         return Result.success();
     }
 

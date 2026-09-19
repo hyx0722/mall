@@ -37,7 +37,7 @@ public interface RefundMapper extends BaseMapper<Refund> {
             + "order by id limit 100")
     List<Refund> selectStuckRefunding(@Param("minutes") int minutes);
 
-    /** 悬挂退款单数量（供 mall.refund.pending 指标用） */
+    /** 悬挂退款单数量（供 mall.pay.refund.stuck 指标用，见 com.payment.metrics.RefundMetrics） */
     @Select("select count(*) from refund where refund_status=0 and created_time <= date_sub(now(), interval #{minutes} minute)")
     long countStuckRefunding(@Param("minutes") int minutes);
 

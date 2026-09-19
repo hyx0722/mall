@@ -89,7 +89,7 @@ CREATE TABLE `order_refund` (
                                 `order_id`        BIGINT UNSIGNED NOT NULL                COMMENT '订单ID（orders.id）',
                                 `order_no`        VARCHAR(32)     NOT NULL                COMMENT '订单编号（冗余，便于按单号排查）',
                                 `user_id`         BIGINT UNSIGNED NOT NULL                COMMENT '申请买家ID',
-                                `refund_amount`   DECIMAL(10,2)   NOT NULL DEFAULT 0.00   COMMENT '退款金额（本仓为整单全额退款）',
+                                `refund_amount`   DECIMAL(10,2)   NOT NULL DEFAULT 0.00   COMMENT '退款金额（整单全额 = 订单实付，即原价−优惠）',
                                 `refund_status`   TINYINT         NOT NULL DEFAULT 0      COMMENT '审核状态：0-待审核，1-审核通过(打款中)，2-已退款，3-已驳回',
                                 `refund_reason`   VARCHAR(255)    DEFAULT NULL            COMMENT '买家退款原因',
                                 `reject_reason`   VARCHAR(255)    DEFAULT NULL            COMMENT '审核驳回原因',

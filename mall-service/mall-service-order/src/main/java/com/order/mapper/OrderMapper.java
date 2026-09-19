@@ -9,6 +9,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -144,6 +145,27 @@ public interface OrderMapper extends BaseMapper<Order> {
             "join mall_service_product.product p on p.id=oi.product_id " +
             "where oi.order_id=#{orderId} and p.user_id<>#{userId}")
     long countForeignItemLines(@Param("orderId") Long orderId, @Param("userId") Long userId);
+
+    /**
+     * {@link #countForeignItemLines} 的批量版本：返回这批订单里**含其它卖家商品**的订单 id 集合。
+     *
+     * 用 {@code select distinct oi.order_id} 而不是 {@code count(*) ... group by}：
+     * 调用方只做「集合成员判断」判断混单与否，不需要计数，这样就免去为分组结果再造一个 DTO。
+     *
+     * ⚠️ 这里的 {@code !=} 不能写成 {@code <>}：本方法在 {@code <script>} 里，
+     * MyBatis 会把整串当 XML 解析，裸的尖括号会在**启动期**抛 SAX 解析错误
+     * （上面 countForeignItemLines 能用 {@code <>} 是因为它不在 script 块中）。
+     *
+     * ⚠️ 调用方必须先挡空集合：`in ()` 是 SQL 语法错误。
+     */
+    @Select("<script>" +
+            "select distinct oi.order_id from order_item oi " +
+            "join mall_service_product.product p on p.id=oi.product_id " +
+            "where p.user_id != #{userId} and oi.order_id in " +
+            "<foreach collection='orderIds' item='oid' open='(' separator=',' close=')'>#{oid}</foreach>" +
+            "</script>")
+    List<Long> selectOrderIdsWithForeignItemLines(@Param("orderIds") Collection<Long> orderIds,
+                                                  @Param("userId") Long userId);
 
     // 商家：查看含自己商品的订单（跨库 product 判断归属），带买家名 + 收货快照
     @Select("<script>" +

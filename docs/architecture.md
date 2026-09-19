@@ -66,9 +66,15 @@ mall
 > 不会被注册。**不要往 `model` 里加 servlet 依赖**，否则网关会连带引入 servlet 栈而启动失败。
 
 业务服务（`mall-service/pom.xml`）统一继承：`model`、`mall-common`、`spring-boot-starter-web`、actuator、
-`mysql-connector-j`、`druid-spring-boot-4-starter`、`spring-boot-starter-data-redis`、
-`redisson-spring-boot-starter`、`spring-security-crypto`、Nacos discovery + config、OpenFeign、
-loadbalancer、Sentinel。
+`micrometer-registry-prometheus`、`mysql-connector-j`、`druid-spring-boot-4-starter`、
+`spring-boot-starter-data-redis`、`redisson-spring-boot-starter`、`spring-security-crypto`、
+Nacos discovery + config、OpenFeign、loadbalancer、Sentinel。
+
+> `micrometer-registry-prometheus` 只声明 registry 即可（`/actuator/prometheus` 的自动配置随 actuator 到位）。
+> **不要写 `<version>`**（Boot 4 的 BOM 不直接管理它，经 `micrometer-bom` 传递管理），
+> 也**不要**换成 `-simpleclient` 变体（会带回旧的 `io.prometheus:simpleclient` 栈）。
+> 网关不继承 `mall-service`，它那份声明在 `mall-gateway/pom.xml`。
+> `spring-boot-starter-cache` 则**只在 product 模块**（其余服务没有缓存注解）。
 其中 **order / inventory / payment / user** 额外加 `spring-boot-starter-amqp`；**payment** 另加
 `alipay-sdk-java:4.40.630.ALL` 与 `wechatpay-java:0.2.17`。
 
@@ -117,7 +123,7 @@ loadbalancer、Sentinel。
 - `jwt.secret: ${JWT_SECRET:}`（从环境变量注入）
 - `spring.data.redis`（校验登录态用）
 - `cors.allowed-origins`（默认两个前端 dev 端口，见 [CorsConfig](../mall-gateway/src/main/java/com/gateway/config/CorsConfig.java)）
-- actuator 暴露 `health,info,metrics`
+- actuator 暴露 `health,info,metrics,prometheus`
 
 > **跨域**：开发期两个前端走 Vite 代理属同源，用不到 CORS；部署 `dist` 产物到其它域名/端口时才需要。
 > `CorsWebFilter` 是 WebFilter，跑在网关过滤器链之前并会短路掉合法预检，
