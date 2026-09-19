@@ -4,7 +4,11 @@ import com.model.event.RefundRequestEvent;
 import com.payment.entity.Refund;
 import com.payment.mapper.RefundMapper;
 import com.payment.service.RefundService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -38,9 +42,31 @@ public class RefundReconcileTask {
     @Autowired
     RefundService refundService;
 
+    /**
+     * MeterRegistry 用 ObjectProvider 取，理由同 mall-common 的 OutboxConfig：
+     * 它由 actuator 提供，取不到时应降级为「只有日志」，而不是让本任务的装配失败。
+     */
+    @Autowired
+    ObjectProvider<MeterRegistry> meterRegistryProvider;
+
+    /** 可为 null：无 registry 时降级为「只记日志」，调用侧判空后跳过 */
+    private Counter reconciledCounter;
+
     /** 停在退款中超过该分钟数即视为悬挂（要大于消费重试的最长耗时，避免打断正在重试的单） */
     @Value("${payment.refund-reconcile-minutes:10}")
     private int stuckMinutes;
+
+    @PostConstruct
+    void initMetrics() {
+        MeterRegistry registry = meterRegistryProvider.getIfAvailable();
+        if (registry == null) {
+            return;
+        }
+        this.reconciledCounter = Counter.builder("mall.pay.refund.reconciled")
+                .description("退款对账任务累计成功重投的退款单数；长期为 0 而 mall.pay.refund.stuck 不降，"
+                        + "说明重投一直在失败（渠道侧持续拒绝出款）")
+                .register(registry);
+    }
 
     @Scheduled(fixedDelay = 300_000, initialDelay = 60_000)
     public void reconcile() {
@@ -62,6 +88,11 @@ public class RefundReconcileTask {
                 }
             }
             log.warn("[pay] 退款对账完成，本轮重投 {}/{} 笔", recovered, stuck.size());
+            // 计数「本轮成功重投了几笔」：与 mall.pay.refund.stuck 配合才能区分
+            // 「对账在跑但一笔都没捞回」与「对账根本没在跑」——后者 stuck 会一直不降
+            if (reconciledCounter != null && recovered > 0) {
+                reconciledCounter.increment(recovered);
+            }
         } catch (Exception e) {
             log.error("[pay] 退款对账扫描异常", e);
         }

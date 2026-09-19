@@ -1,5 +1,6 @@
 package com.mall.common.outbox;
 
+import com.mall.common.metrics.OutboxMeters;
 import io.micrometer.core.instrument.MeterRegistry;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -24,15 +25,42 @@ import javax.sql.DataSource;
 @Configuration
 public class OutboxConfig {
 
+    /**
+     * outbox 生命周期计数的持有者。
+     *
+     * 与下面的 outboxConfirmInstaller 同样的理由用 ObjectProvider：MeterRegistry 由 actuator 提供，
+     * 而 OutboxConfigTest 只用桩依赖、不起 actuator 自动配置。ObjectProvider 在零候选时也能解析，
+     * 取不到就退化成 no-op（只有日志），装配本身不受影响。
+     */
+    @Bean
+    public OutboxMeters outboxMeters(ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        return new OutboxMeters(meterRegistryProvider.getIfAvailable());
+    }
+
     @Bean
     public OutboxService outboxService(DataSource dataSource, RabbitTemplate rabbitTemplate,
-                                       ObjectMapper objectMapper) {
-        return new OutboxServiceImpl(dataSource, rabbitTemplate, objectMapper);
+                                       ObjectMapper objectMapper, OutboxMeters outboxMeters) {
+        return new OutboxServiceImpl(dataSource, rabbitTemplate, objectMapper, outboxMeters);
     }
 
     @Bean
     public OutboxRelayTask outboxRelayTask(OutboxService outboxService) {
         return new OutboxRelayTask(outboxService);
+    }
+
+    /**
+     * 已放弃事件的查看/重投管理端。
+     *
+     * 在这里以 @Bean 注册而不是让各服务自己写控制器，是因为本类带 @RestController 时
+     * 只要进了容器就是合法的 MVC handler（RequestMappingHandlerMapping 只看注解、不看注册方式），
+     * 而**恰好**只有带 outbox 表的三个服务导入了本配置——于是「有 outbox 表 ⇒ 有管理端」
+     * 自动成立，三个启动类一行都不用改，也不可能漏掉某个服务。
+     *
+     * 详见 {@link OutboxAdminController} 的类注释。
+     */
+    @Bean
+    public OutboxAdminController outboxAdminController(OutboxService outboxService) {
+        return new OutboxAdminController(outboxService);
     }
 
     /**

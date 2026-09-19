@@ -171,7 +171,7 @@ export JWT_SECRET="$(openssl rand -base64 32)"
 mvn test
 ```
 
-仓库**共 7 个测试**，都用来守「靠约定维持、重构时容易被静默破坏」的不变量：
+仓库**共 10 个测试类**，都用来守「靠约定维持、重构时容易被静默破坏」的不变量：
 
 | 模块 | 测试 | 守住什么 |
 | ---- | ---- | ---- |
@@ -182,20 +182,31 @@ mvn test
 | `mall-service-user` | `CouponPreviewRequestValidationTest` | `CouponPreviewRequest` 不带 `userCouponId` 时必须通过校验（`/coupon/usable` 就这么调），且嵌套的 `Line` 约束确实生效（`@Valid` 不能漏） |
 | `mall-service-order` | `DiscountAllocatorTest` | 整单优惠按行占比分摊后 **Σ分摊恰好等于整单优惠**（尾差归末行）；单行分摊不超过该行小计；整单为 0 时不除零 |
 | `mall-service-inventory` | `InventoryMapperConcurrencyTest` | 并发扣库存**绝不超卖**；释放锁定不能凭空造出库存 |
+| `mall-service-order` | `OrderMapperRegistrationTest` | `<script>` 里的 SQL 能被当 XML 解析——在里面写 `<>` 会抛 SAX 错误，且**只在启动期暴露**，此测试把它提前到构建期 |
+| `mall-common` | `OutboxServiceImplTest` | 管理端重投只碰 `status=3` 的行、重复调用幂等、`limit` 有界 |
+| `mall-service-product` | `ProductCacheSerializerTest` | 缓存值读回来的**运行时类型**正确（不是 `LinkedHashMap`）——这是唯一「写成功、读才炸」的失败模式；另守空值缓存与缓存键归一化 |
 
-最后一个用 Testcontainers 起**真实 MySQL**，**需要本机 Docker 守护进程在运行**（前两个不需要）。
+`InventoryMapperConcurrencyTest` 与新增的 `OutboxServiceImplTest` 都用 Testcontainers 起**真实 MySQL**，
+**需要本机 Docker 守护进程在运行**。两者对「没装 Docker」的处理刻意不同：前者**失败**
+（它守的是超卖这条命脉，静默跳过等于没人守），后者**跳过**（`mall-common` 原有三个测试
+刻意都是零基础设施的，不该因为新增一个测试就把该模块的 `mvn test` 变成必须装 Docker）。
 详见 [docs/operations.md](docs/operations.md#测试)。
 
 ## 可观测性
 
-各服务与网关均接入 actuator（端口即服务端口）：`GET /actuator/health`、`GET /actuator/metrics`。
+各服务与网关均接入 actuator（端口即服务端口）：`GET /actuator/health`、`GET /actuator/metrics`
+（JSON，便于人工查看单条），以及 **`GET /actuator/prometheus`**（文本格式，配告警规则用这个）。
 
-值得留意的是 `GET /actuator/metrics/mall.outbox.pending`（**outbox 待投递事件数**，order / payment / inventory）：
+值得留意的是 `mall.outbox.pending`（**outbox 待投递事件数**，order / payment / inventory）：
 outbox 由 relay 定时投递，一旦 relay 停摆或持续投递失败，事件会静静堆在表里而**没有任何外部表征**
 （订单不推进、库存不释放），只能从业务现象倒推。
 
-还有 `mall.outbox.unroutable`（**无法路由而被退回的消息数**）：发布侧已开 publisher-confirms + returns，
-消息到不了任何队列时不再静默丢失，而是计数告警并可重投。各服务 DLQ 堆积在 RabbitMQ 管理台看。
+`mall.outbox.unroutable` / `mall.outbox.abandoned` / `mall.outbox.abandoned.backlog` 覆盖另一半：
+发布侧已开 publisher-confirms + returns，消息到不了任何队列时不再静默丢失。
+被放弃（`status=3`）的事件现在有恢复入口——
+`GET|POST /{order|pay|inventory}/admin/outbox/abandoned|requeue`（仅管理员、幂等、有界）。
+另外 `mall.pay.refund.stuck` 让悬挂退款可被观测，不必再去翻 `RefundReconcileTask` 的日志。
+各服务 DLQ 堆积在 RabbitMQ 管理台看。
 
 详见 [docs/operations.md](docs/operations.md#可观测性)。
 

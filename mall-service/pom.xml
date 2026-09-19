@@ -33,10 +33,22 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
-        <!-- 健康检查与运行指标（/actuator/health、/actuator/metrics） -->
+        <!-- 健康检查与运行指标（/actuator/health、/actuator/metrics、/actuator/prometheus） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!--
+            Prometheus 抓取端点（/actuator/prometheus）。
+            ⚠️ 不要写 <version>：Boot 4 的 spring-boot-dependencies 并不直接管理本坐标，
+               而是经它导入的 micrometer-bom:1.16.0 传递管理，写死版本会把我们钉到 BOM 之外。
+            ⚠️ 不要换成 micrometer-registry-prometheus-simpleclient：那个变体会带回旧的
+               io.prometheus:simpleclient 栈（Boot 4 的自动配置已改用新的 prometheus-metrics-* 客户端）。
+            只声明 registry 即可，PrometheusScrapeEndpoint 的自动配置随 spring-boot-starter-actuator 一起到位。
+        -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
         <!-- 测试 -->
         <dependency>

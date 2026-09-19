@@ -64,6 +64,29 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+            测试：OutboxServiceImplTest 用真实 MySQL 验证 requeueAbandoned 的幂等性。
+            该幂等性来自 `where status=3` + `UPDATE ... ORDER BY ... LIMIT` 这两条数据库语义，
+            H2 之类的内存库替代不了，故与 InventoryMapperConcurrencyTest 采用同样的做法。
+            ⚠️ 需要本机 Docker 守护进程处于运行状态；首次执行会拉取 mysql:8.4 镜像。
+            版本由父 pom 导入的 testcontainers-bom 管理；2.x 起坐标为 testcontainers-* 前缀，不要写死。
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-mysql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- JDBC 驱动：Testcontainers 起库后由 MysqlDataSource 连接 -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
 </project>

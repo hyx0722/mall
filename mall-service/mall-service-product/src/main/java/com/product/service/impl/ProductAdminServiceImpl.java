@@ -3,9 +3,12 @@ package com.product.service.impl;
 import com.model.bean.PageBean;
 import com.model.bean.Product;
 import com.model.exception.BusinessException;
+import com.product.config.ProductCacheConfig;
 import com.product.mapper.ProductAdminMapper;
 import com.product.service.ProductAdminService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,6 +44,10 @@ public class ProductAdminServiceImpl implements ProductAdminService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = ProductCacheConfig.C_PRODUCT, key = "#id"),
+            @CacheEvict(cacheNames = ProductCacheConfig.C_PRODUCT_PAGE, allEntries = true)
+    })
     public void adminChangeStatus(Long id, Integer status) {
         if (id == null) {
             throw new BusinessException("缺少商品 id");

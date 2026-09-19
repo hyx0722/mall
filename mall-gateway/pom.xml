@@ -39,10 +39,15 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
-        <!-- 健康检查与运行指标（/actuator/health） -->
+        <!-- 健康检查与运行指标（/actuator/health、/actuator/prometheus） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- Prometheus 抓取端点。详见 mall-service/pom.xml 里同一坐标上的注释（版本别写死、别用 -simpleclient 变体） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
         <!-- java-jwt 版本由父 pom 统一管理（解析 JWT） -->
     </dependencies>

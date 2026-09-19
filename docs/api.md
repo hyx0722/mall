@@ -186,6 +186,15 @@
 | /user | PUT `/admin/coupon/status?couponId&status` | 券上下架 |
 | /order | GET `/admin/withdrawals` | 待审核的商家提现申请 |
 | /order | POST `/admin/withdraw/audit` | 审核提现；通过即视为已打款并把对应结算明细置为已提现 |
+| /order · /pay · /inventory | GET `/admin/outbox/abandoned?limit` | 列出被放弃（`status=3`）的 outbox 事件。三个有 outbox 表的服务**都**有这组接口 |
+| /order · /pay · /inventory | POST `/admin/outbox/requeue?limit` | 把被放弃的事件翻回待发送，下一轮 relay（3s）领取 |
+
+> **outbox 重投**（上面最后两行）是 `status=3` 唯一的恢复入口——这类事件由「路由键与队列绑定不匹配」
+> 导致，重试永远不会成功，此前只能手工改库。接口**幂等**（条件 `status=3`，重复调用返回 0）、
+> **有界**（`limit` 钳制 1~200，默认 50）、**碰不到活跃行**，列表刻意不带 `payload`。
+> 实现在 `mall-common` 的 `OutboxAdminController`，由 `OutboxConfig` 以 `@Bean` 注册，
+> 故「有 outbox 表 ⇒ 有这组接口」自动成立（注意 payment 除此以外没有任何管理员接口）。
+> 运维流程见 [operations.md](operations.md#已知未完成)。
 
 > **商家结算与提现**：订单完成后生成 `settlement` 明细（待结算），账期 T+N
 > （`order.settlement-delay-days`，默认 7 天）到点由 `SettlementTask` 转为**可提现**；
