@@ -19,6 +19,10 @@ import java.util.List;
  *   <li><b>商品评价</b>：只有已完成才允许评价。</li>
  * </ul>
  *
+ * ⚠️ 上面第二条说的是**资格判定的依据**，不是「评价要消费这个事件」——
+ * 评价由买家当场输入评分与文字、**同步写入**（{@code ProductReviewService.create}），
+ * 本事件只在评价写完后用于通知。**不要**去补一个 order.completed 的评价消费者。
+ *
  * 与 {@link OrderRefundedEvent} 的区别：那个是**逆向**（退款到账，库存回补，change_type=6）；
  * 本事件是**正向终态**，不涉及库存变动，只表示「交易闭环完成」。
  *

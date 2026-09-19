@@ -230,6 +230,7 @@ onMounted(async () => {
         <el-button @click="router.push('/seller/orders')">查看商品订单</el-button>
         <el-button @click="router.push('/seller/coupons')">我的优惠券</el-button>
         <el-button @click="router.push('/seller/messages')">店铺公告</el-button>
+        <el-button @click="router.push('/seller/reviews')">我的评价</el-button>
         <el-button type="primary" @click="openAdd">发布商品</el-button>
       </div>
     </div>

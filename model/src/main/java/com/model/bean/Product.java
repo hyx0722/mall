@@ -49,4 +49,17 @@ public class Product {
     // 非持久化：管理员商品列表联表带出的卖家用户名
     @TableField(exist = false)
     private String sellerName;
+
+    /**
+     * 非持久化：商品评价的平均分（由 ProductMapper 的相关子查询算出）。
+     *
+     * ⚠️ **无评价时是 NULL，不是 0**。前端必须据此整块不渲染星級——
+     * 显示「0.0 分」会把「没人评过」误报成「差评」。
+     */
+    @TableField(exist = false)
+    private BigDecimal avgRating;
+
+    /** 非持久化：评价条数。与 {@link #avgRating} 配套，0 表示无评价 */
+    @TableField(exist = false)
+    private Integer reviewCount;
 }

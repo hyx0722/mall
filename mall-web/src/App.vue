@@ -88,6 +88,7 @@ const ACTIVE_MAP = {
   'seller-coupons': '/seller',
   'seller-stats': '/seller/stats',
   'seller-messages': '/seller',
+  'seller-reviews': '/seller',
   profile: '/profile',
   address: '/address',
 }
@@ -121,6 +122,7 @@ const PAGE_TINT = {
   'seller-coupons': 'tint-seller',
   'seller-stats': 'tint-seller',
   'seller-messages': 'tint-seller',
+  'seller-reviews': 'tint-seller',
   // 登录/注册 —— 中性灰
   login: 'tint-auth',
   register: 'tint-auth',

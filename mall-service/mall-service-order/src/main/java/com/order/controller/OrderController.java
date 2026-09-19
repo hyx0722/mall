@@ -2,18 +2,26 @@ package com.order.controller;
 
 import com.mall.common.web.Auths;
 import com.model.bean.Order;
+import com.model.bean.PageBean;
 import com.model.bean.Result;
+import com.order.bean.BuyerOrderItemVO;
 import com.order.bean.CreateOrderRequest;
 import com.order.bean.OrderItem;
 import com.order.bean.OrderRefund;
 import com.order.bean.RefundApplyRequest;
 import com.order.bean.RefundAuditRequest;
+import com.order.bean.ReviewCreateRequest;
+import com.order.bean.ReviewReplyRequest;
+import com.order.bean.ReviewStatVO;
+import com.order.bean.ReviewVO;
+import com.order.bean.ReviewableOrderVO;
 import com.order.bean.SellerOrderVO;
 import com.order.bean.ShipRequest;
 import com.order.bean.Shipping;
 import com.order.bean.WithdrawApplyRequest;
 import com.order.service.OrderRefundService;
 import com.order.service.OrderService;
+import com.order.service.ProductReviewService;
 import com.order.service.SettlementService;
 import com.order.service.WithdrawService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +45,86 @@ public class OrderController {
     SettlementService settlementService;
     @Autowired
     WithdrawService withdrawService;
+    @Autowired
+    ProductReviewService productReviewService;
+
+    // ==================== 商品评价 ====================
+    //
+    // 资格规则：只有**已完成**订单里的商品能评价，且每个订单每个商品一条。
+    // 判定不在 controller 也不在 service——它被写进了 insertEligibleReview 的 INSERT…SELECT，
+    // 见 ProductReviewMapper 的说明。
+    //
+    // 所有接口的 userId/sellerId 一律取自登录态，**没有任何一个收它作参数**。
+
+    /** 某商品的评价分页。公开——商品详情页不要求登录（网关只要求 token） */
+    @GetMapping("/review/list")
+    public Result<PageBean<ReviewVO>> reviewList(@RequestParam Long productId,
+                                                 @RequestParam(defaultValue = "1") Integer page,
+                                                 @RequestParam(defaultValue = "10") Integer size) {
+        return Result.success(productReviewService.pageByProduct(productId, page, size));
+    }
+
+    /** 某商品的评价汇总：平均分 / 总数 / 1-5 星分布。公开 */
+    @GetMapping("/review/stat")
+    public Result<ReviewStatVO> reviewStat(@RequestParam Long productId) {
+        return Result.success(productReviewService.stat(productId));
+    }
+
+    /**
+     * 单条评价。公开。
+     * 站内通知里「商家回复了你的评价」的深链只有 reviewId，靠它换出 productId 才能跳商品页。
+     */
+    @GetMapping("/review/detail")
+    public Result<ReviewVO> reviewDetail(@RequestParam Long id) {
+        return Result.success(productReviewService.detail(id));
+    }
+
+    /** 我买过该商品、订单已完成、且尚未评价的订单列表（写评价弹框的订单选择器） */
+    @GetMapping("/review/mine")
+    public Result<List<ReviewableOrderVO>> reviewMine(@RequestParam Long productId) {
+        Auths.requireLogin();
+        return Result.success(productReviewService.reviewableOrders(Auths.currentUserId(), productId));
+    }
+
+    /** 写评价 */
+    @PostMapping("/review/create")
+    public Result reviewCreate(@RequestBody @Validated ReviewCreateRequest request) {
+        Auths.requireLogin();
+        productReviewService.create(Auths.currentUserId(), request);
+        return Result.success();
+    }
+
+    /**
+     * 买家视角的订单明细 + 每行能否评价（订单详情页）。
+     *
+     * ⚠️ 归属校验在 SQL 里（{@code o.user_id = 登录态}），不是我的订单返回空列表。
+     * 命名与 {@code /admin/findOrderItems} 对齐——它是订单资源，不是评价资源。
+     */
+    @GetMapping("/findOrderItems")
+    public Result<List<BuyerOrderItemVO>> findOrderItems(@RequestParam Long orderId) {
+        Auths.requireLogin();
+        return Result.success(productReviewService.orderItems(Auths.currentUserId(), orderId));
+    }
+
+    /** 商家：我商品的评价分页；{@code onlyUnreplied=true} 只列未回复的 */
+    @GetMapping("/seller/reviews")
+    public Result<PageBean<ReviewVO>> sellerReviews(@RequestParam(required = false) Boolean onlyUnreplied,
+                                                    @RequestParam(defaultValue = "1") Integer page,
+                                                    @RequestParam(defaultValue = "10") Integer size) {
+        Auths.requireLogin();
+        return Result.success(productReviewService.sellerReviews(Auths.currentUserId(), onlyUnreplied, page, size));
+    }
+
+    /** 商家回复评价。只有该商品的卖家能回复，且只能回复一次 */
+    @PostMapping("/seller/review/reply")
+    public Result sellerReviewReply(@RequestBody @Validated ReviewReplyRequest request) {
+        Auths.requireLogin();
+        productReviewService.reply(Auths.currentUserId(), request);
+        return Result.success();
+    }
+
+    // ==================== 订单 ====================
+
     //查看自己所有的订单
     @GetMapping("findAllOrder")
     public Result<List<Order>> findAllOrder(){

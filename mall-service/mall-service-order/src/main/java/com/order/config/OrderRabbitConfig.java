@@ -68,6 +68,17 @@ public class OrderRabbitConfig {
      */
     public static final String RK_ORDER_SHIPPED = RabbitTopology.RK_ORDER_SHIPPED;
 
+    /**
+     * order 发布：买家写了商品评价 / 卖家回复了评价。
+     *
+     * <p>同 {@link #RK_ORDER_SHIPPED}：**这里只导出常量，不要声明队列**。
+     * 队列由消费者（user 服务的 {@code q.user.review.*}）自己声明。
+     * 在本配置里多声明一条队列，得到的是**没有监听器**的队列——消息只堆积，
+     * 而且会让人误以为消费端已经在处理。
+     */
+    public static final String RK_REVIEW_CREATED = RabbitTopology.RK_REVIEW_CREATED;
+    public static final String RK_REVIEW_REPLIED = RabbitTopology.RK_REVIEW_REPLIED;
+
     public static final String DELAY_EXCHANGE = RabbitTopology.DELAY_EXCHANGE;
     public static final String RK_DELAY_ORDER_TIMEOUT = RabbitTopology.RK_DELAY_ORDER_TIMEOUT;
     public static final String Q_DELAY_ORDER_TIMEOUT = RabbitTopology.Q_DELAY_ORDER_TIMEOUT;

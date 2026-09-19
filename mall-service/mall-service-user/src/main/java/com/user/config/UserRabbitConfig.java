@@ -56,6 +56,8 @@ public class UserRabbitConfig {
     public static final String RK_PAY_SUCCESS = RabbitTopology.RK_PAY_SUCCESS;
     public static final String RK_ORDER_SHIPPED = RabbitTopology.RK_ORDER_SHIPPED;
     public static final String RK_ORDER_COMPLETED = RabbitTopology.RK_ORDER_COMPLETED;
+    public static final String RK_REVIEW_CREATED = RabbitTopology.RK_REVIEW_CREATED;
+    public static final String RK_REVIEW_REPLIED = RabbitTopology.RK_REVIEW_REPLIED;
 
     public static final String Q_USER_ORDER_CANCELED = RabbitTopology.Q_USER_ORDER_CANCELED;
     public static final String Q_USER_ORDER_REFUNDED = RabbitTopology.Q_USER_ORDER_REFUNDED;
@@ -63,6 +65,8 @@ public class UserRabbitConfig {
     public static final String Q_USER_PAY_SUCCESS = RabbitTopology.Q_USER_PAY_SUCCESS;
     public static final String Q_USER_ORDER_SHIPPED = RabbitTopology.Q_USER_ORDER_SHIPPED;
     public static final String Q_USER_ORDER_COMPLETED = RabbitTopology.Q_USER_ORDER_COMPLETED;
+    public static final String Q_USER_REVIEW_CREATED = RabbitTopology.Q_USER_REVIEW_CREATED;
+    public static final String Q_USER_REVIEW_REPLIED = RabbitTopology.Q_USER_REVIEW_REPLIED;
 
     public static final String DLX_EXCHANGE = RabbitTopology.DLX_EXCHANGE;
     public static final String Q_USER_DLQ = RabbitTopology.Q_USER_DLQ;
@@ -142,6 +146,28 @@ public class UserRabbitConfig {
     @Bean
     public Binding bindUserOrderCompleted() {
         return BindingBuilder.bind(userOrderCompletedQueue()).to(userOrderExchange()).with(RK_ORDER_COMPLETED);
+    }
+
+    // ---------- 站内通知：评价链路 ----------
+
+    @Bean
+    public Queue userReviewCreatedQueue() {
+        return withDlqArgs(Q_USER_REVIEW_CREATED);
+    }
+
+    @Bean
+    public Binding bindUserReviewCreated() {
+        return BindingBuilder.bind(userReviewCreatedQueue()).to(userOrderExchange()).with(RK_REVIEW_CREATED);
+    }
+
+    @Bean
+    public Queue userReviewRepliedQueue() {
+        return withDlqArgs(Q_USER_REVIEW_REPLIED);
+    }
+
+    @Bean
+    public Binding bindUserReviewReplied() {
+        return BindingBuilder.bind(userReviewRepliedQueue()).to(userOrderExchange()).with(RK_REVIEW_REPLIED);
     }
 
     // 注意：order.shipped 的**发布方**（order 服务）不声明任何队列，只声明交换机。

@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { getProductDetail } from '../api/product'
 import { addToCart } from '../api/cart'
 import { money } from '../utils/format'
+import ReviewPanel from '../components/ReviewPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -119,6 +120,9 @@ onMounted(load)
           <template #header><span class="dc-title">商品详情</span></template>
           <div class="detail-text">{{ product.detail || '暂无详情描述' }}</div>
         </el-card>
+
+        <!-- 商品评价：读取公开，写入口对已购买的用户开放（服务端校验订单已完成） -->
+        <ReviewPanel :product-id="product.id" />
       </template>
     </div>
   </div>

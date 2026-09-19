@@ -149,3 +149,40 @@ CREATE TABLE `withdraw` (
                             UNIQUE KEY `uk_withdraw_no` (`withdraw_no`),
                             KEY `idx_seller_status` (`seller_id`,`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家提现申请表';
+
+-- 8. 商品评价
+--    只允许在**已完成**（order_status=3）的订单上评价，且每个订单每个商品一条
+--    （uk_order_product 即此语义：买两次可评两次，同一订单同一商品只一条）。
+--    seller_id 取商品归属，是商家回复权限的唯一依据；product_name/image 是下单时的快照，
+--    这样评价的读取路径完全不跨库（只有买家用户名要 join user 库）。
+--
+--    存量环境升级：本表为本轮新增，直接执行下面这条 CREATE TABLE 即可（无 ALTER）。
+CREATE TABLE `product_review` (
+                                  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '评价ID',
+                                  `order_id`      BIGINT UNSIGNED NOT NULL                COMMENT '订单ID（逻辑外键 -> orders.id）',
+                                  `product_id`    BIGINT UNSIGNED NOT NULL                COMMENT '商品ID（逻辑外键 -> product_db.product.id）',
+                                  `product_name`  VARCHAR(200)    NOT NULL                COMMENT '商品名称（下单时的快照）',
+                                  `product_image` VARCHAR(255)    DEFAULT NULL            COMMENT '商品图片（下单时的快照）',
+                                  `user_id`       BIGINT UNSIGNED NOT NULL                COMMENT '评价人（买家，逻辑外键 -> user_db.user.id）',
+                                  `seller_id`     BIGINT UNSIGNED NOT NULL                COMMENT '商品归属卖家（逻辑外键 -> user_db.user.id），商家回复权限依据',
+                                  `rating`        TINYINT         NOT NULL                COMMENT '评分 1-5',
+                                  `content`       VARCHAR(500)    NOT NULL                COMMENT '评价内容',
+                                  `reply_content` VARCHAR(500)    DEFAULT NULL            COMMENT '商家回复（一条；NULL 表示未回复）',
+                                  `reply_time`    DATETIME        DEFAULT NULL            COMMENT '回复时间',
+                                  `created_time`  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '评价时间',
+                                  PRIMARY KEY (`id`),
+                                  -- 幂等键：每个订单每个商品一条。并发重复提交靠它兜底（不是靠「先查后插」）
+                                  UNIQUE KEY `uk_order_product` (`order_id`,`product_id`),
+                                  -- (product_id,rating) 让平均分/计数成为索引覆盖扫描，不必回表读 rating
+                                  KEY `idx_product_rating` (`product_id`,`rating`),
+                                  KEY `idx_user` (`user_id`),
+                                  -- 商家中心按 seller 列评价并筛「未回复」
+                                  KEY `idx_seller` (`seller_id`,`id`),
+                                  CONSTRAINT `chk_rating` CHECK (`rating` BETWEEN 1 AND 5)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品评价表';
+
+--    刻意不做的两件事（别当成漏做）：
+--    a) 订单在评价之后又走到退款中/已退款（3 -> 5 -> 6）时**不回收评价**。
+--       评价是历史事实而非订单状态的派生物，且 5 -> 3 本身是合法转换（退款被驳回），
+--       按状态实时过滤会让评价「消失又出现」。真要处理应打标灰显，属风控范畴。
+--    b) 不阻止卖家买自己的商品后评价。

@@ -16,7 +16,9 @@ import java.time.LocalDateTime;
  * <ul>
  *   <li>订单链路（类型 1-6）：{@code NotificationListener} / {@code CouponReleaseListener}
  *       消费 MQ 事件时写入；</li>
- *   <li>商店链路（类型 7-9）：发公告 / 上新 / 发券时由 {@link #storeId} 群发给订阅者。</li>
+ *   <li>商店链路（类型 7-9）：发公告 / 上新 / 发券时由 {@link #storeId} 群发给订阅者；</li>
+ *   <li>评价链路（类型 10-11）：消费 {@code review.created} / {@code review.replied}，
+ *       单发给卖家或买家（**不是**群发）。</li>
  * </ul>
  *
  * ── 幂等 ──────────────────────────────────────────────────────────
@@ -45,11 +47,29 @@ public class Notification {
     public static final int TYPE_STORE_NEW_PRODUCT = 8;
     public static final int TYPE_STORE_NEW_COUPON = 9;
 
+    // ---------- 评价链路 ----------
+    /** 收件人是**卖家**：你的商品收到了新评价 */
+    public static final int TYPE_REVIEW_CREATED = 10;
+    /** 收件人是**买家**：商家回复了你的评价 */
+    public static final int TYPE_REVIEW_REPLIED = 11;
+
     /** 关联业务类型。存字符串而非数字：库里可直接肉眼读懂，新增类型也不用回去改映射表 */
     public static final String REF_ORDER = "ORDER";
     public static final String REF_PRODUCT = "PRODUCT";
     public static final String REF_COUPON = "COUPON";
     public static final String REF_STORE = "STORE";
+    /**
+     * 关联一条商品评价，{@code ref_id} 是**评价主键**。
+     *
+     * <p>⚠️ 评价类通知的 ref_id **必须是 reviewId**，不能用 productId / orderId：
+     * <ul>
+     *   <li>用 productId（类型 10）→ 商家对同一商品永远只收到**第一条**评价通知，
+     *       后续全部撞 {@code uk_user_type_ref} 被静默丢弃，「买两次可评两次」直接失效；</li>
+     *   <li>用 orderId（类型 11）→ 一个订单可含多个商品，买家在同一订单写 2 条评价、
+     *       商家都回复，两条通知键相同，第二条被吞。</li>
+     * </ul>
+     */
+    public static final String REF_REVIEW = "REVIEW";
 
     /** 无关联时的占位值（**不能是 NULL**，见类注释与 notification 的 DDL 说明） */
     public static final String REF_NONE = "";
@@ -68,7 +88,7 @@ public class Notification {
     @TableField(value = "user_id")
     private Long userId;
 
-    /** {@link #TYPE_ORDER_CREATED} 等 */
+    /** {@link #TYPE_ORDER_CREATED} 等（1-6 订单 / 7-9 商店 / 10-11 评价） */
     @TableField(value = "type")
     private Integer type;
 

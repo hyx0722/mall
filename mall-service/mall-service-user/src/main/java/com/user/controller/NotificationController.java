@@ -39,6 +39,14 @@ public class NotificationController {
             Notification.TYPE_STORE_ANNOUNCEMENT,
             Notification.TYPE_STORE_NEW_PRODUCT,
             Notification.TYPE_STORE_NEW_COUPON);
+    /**
+     * 评价 tab。⚠️ 新类型若忘了加进任何一个 tab，它不会报错——
+     * {@code switch} 的 default 落到「全部」，于是这些通知**从所有分类 tab 里都消失**，
+     * 只有「全部」看得到。
+     */
+    private static final List<Integer> REVIEW_TYPES = List.of(
+            Notification.TYPE_REVIEW_CREATED,
+            Notification.TYPE_REVIEW_REPLIED);
 
     @Autowired
     NotificationService notificationService;
@@ -46,7 +54,7 @@ public class NotificationController {
     /**
      * 收件箱分页。
      *
-     * @param category {@code all}（默认）/ {@code order} / {@code store}
+     * @param category {@code all}（默认）/ {@code order} / {@code store} / {@code review}
      * @param isRead   null 全部 / 0 未读 / 1 已读
      */
     @GetMapping("/message/list")
@@ -59,6 +67,7 @@ public class NotificationController {
         List<Integer> types = switch (category == null ? "all" : category) {
             case "order" -> ORDER_TYPES;
             case "store" -> STORE_TYPES;
+            case "review" -> REVIEW_TYPES;
             // 认不出的分类按「全部」处理：前端某个 tab 改名不该让页面 500
             default -> List.of();
         };

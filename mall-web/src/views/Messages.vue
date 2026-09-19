@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { deleteMessage, listMessages, markAllRead, markRead } from '../api/message'
+import { reviewDetail } from '../api/review'
 
 const router = useRouter()
 
@@ -12,9 +13,12 @@ const TABS = [
   { name: 'unread', label: '未读', category: 'all', isRead: 0 },
   { name: 'order', label: '订单', category: 'order', isRead: undefined },
   { name: 'store', label: '商店', category: 'store', isRead: undefined },
+  { name: 'review', label: '评价', category: 'review', isRead: undefined },
 ]
 
-// 与后端 Notification 的 type 常量一一对应（1-6 订单，7-9 商店）
+// 与后端 Notification 的 type 常量一一对应（1-6 订单，7-9 商店，10-11 评价）
+// ⚠️ 新增类型忘了加进这里不会报错：meta() 会静默回落到 { text: '消息', tag: 'info' }，
+//    只是标签写错，没有任何提示。
 const TYPE_META = {
   1: { text: '下单', tag: 'primary' },
   2: { text: '支付', tag: 'success' },
@@ -25,6 +29,8 @@ const TYPE_META = {
   7: { text: '公告', tag: 'primary' },
   8: { text: '上新', tag: 'success' },
   9: { text: '新券', tag: 'danger' },
+  10: { text: '新评价', tag: 'warning' },
+  11: { text: '评价回复', tag: 'success' },
 }
 
 const tab = ref('all')
@@ -85,14 +91,29 @@ function onPage(p) {
  *
  * ⚠️ 优惠券指向**店铺页**而不是 /coupons：商家券只在自家店铺页可领，
  * 券中心只列平台券（见 docs/api.md）。指到券中心会让用户找不到那张券。
+ *
+ * ⚠️ 评价类通知的 refId 是 **reviewId**（不是 productId/orderId——那样会在
+ * 去重键上撞车导致通知被静默吞掉，见后端 Notification.REF_REVIEW）。
+ * 所以「商家回复」这类发给买家的通知要多一次查询才能换出商品页地址。
  */
-function linkOf(n) {
-  const type = n.refType
-  if (type === 'ORDER') return `/order/${n.refId}`
-  if (type === 'PRODUCT') return `/product/${n.refId}`
-  if (type === 'COUPON' || type === 'STORE') {
+async function linkOf(n) {
+  const refType = n.refType
+  if (refType === 'ORDER') return `/order/${n.refId}`
+  if (refType === 'PRODUCT') return `/product/${n.refId}`
+  if (refType === 'COUPON' || refType === 'STORE') {
     // 店铺链接需要用户名（店铺路由是 /store/:username），由列表接口批量补全
     return n.storeUsername ? `/store/${n.storeUsername}` : null
+  }
+  if (refType === 'REVIEW') {
+    // 类型 10「你的商品收到新评价」是发给**商家**的 -> 商家评价页并高亮该条
+    if (Number(n.type) === 10) return `/seller/reviews?focus=${n.refId}`
+    // 类型 11「商家回复了你的评价」是发给**买家**的 -> 换出商品，跳商品详情页看那条评价
+    try {
+      const r = await reviewDetail(n.refId)
+      return r?.productId ? `/product/${r.productId}` : null
+    } catch {
+      return null
+    }
   }
   return null
 }
@@ -107,7 +128,7 @@ async function open(vo) {
       // 标已读失败不该挡住跳转——用户的目标是看详情，不是改状态
     }
   }
-  const to = linkOf(n)
+  const to = await linkOf(n)
   if (to) {
     router.push(to)
   } else {

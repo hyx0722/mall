@@ -39,6 +39,8 @@ const routes = [
   { path: '/seller/stats', name: 'seller-stats', component: () => import('../views/SellerStats.vue'), meta: { requiresAuth: true } },
   // 卖家中心：发布店铺公告（发布即群发给订阅者）
   { path: '/seller/messages', name: 'seller-messages', component: () => import('../views/SellerMessages.vue'), meta: { requiresAuth: true } },
+  // 卖家中心：查看并回复商品评价
+  { path: '/seller/reviews', name: 'seller-reviews', component: () => import('../views/SellerReviews.vue'), meta: { requiresAuth: true } },
 ]
 
 const router = createRouter({

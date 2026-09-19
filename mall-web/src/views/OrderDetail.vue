@@ -10,6 +10,7 @@ import {
   applyRefund,
   getRefundDetail,
 } from '../api/order'
+import { listOrderItems } from '../api/review'
 import { money, orderStatusTag, refundStatusTag } from '../utils/format'
 
 const route = useRoute()
@@ -19,12 +20,22 @@ const loading = ref(true)
 const order = ref(null)
 const shippings = ref([])
 const refund = ref(null)
+// 订单明细（含每行能否评价）。此前该页完全不展示买了什么，一并补上
+const items = ref([])
 
 // 可申请退款：待发货 / 待收货 / 已完成（与后端 OrderStatus.refundable 保持一致）
 const canRefund = computed(() => order.value && [1, 2, 3].includes(Number(order.value.orderStatus)))
 
 function fmtTime(t) {
   return t ? String(t).replace('T', ' ').slice(0, 19) : '-'
+}
+
+/**
+ * 跳到商品详情页。评价的写入口在详情页的评价区（那里能看到已有的评价和星级），
+ * 订单页只负责把用户送过去，不重复实现一套弹框。
+ */
+function goReview(productId) {
+  router.push('/product/' + productId)
 }
 
 const descriptions = () => {
@@ -64,9 +75,15 @@ async function load() {
     } catch {
       refund.value = null
     }
+    try {
+      items.value = (await listOrderItems(order.value.id)) || []
+    } catch {
+      items.value = []
+    }
   } else {
     shippings.value = []
     refund.value = null
+    items.value = []
   }
   loading.value = false
 }
@@ -188,6 +205,42 @@ onMounted(load)
           </el-descriptions-item>
         </el-descriptions>
 
+        <template v-if="items.length">
+          <h4 class="sub-title">商品清单</h4>
+          <el-table :data="items" style="width: 100%">
+            <el-table-column prop="productName" label="商品" min-width="220" show-overflow-tooltip />
+            <el-table-column label="单价" width="110">
+              <template #default="{ row }">¥{{ money(row.productPrice) }}</template>
+            </el-table-column>
+            <el-table-column prop="quantity" label="数量" width="80" />
+            <el-table-column label="小计" width="110">
+              <template #default="{ row }">¥{{ money(row.totalPrice) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <!-- 已完成且未评价 -> 可评价；已评价 -> 去看那条评价 -->
+                <el-button
+                  v-if="row.canReview"
+                  link
+                  type="primary"
+                  @click="goReview(row.productId)"
+                >
+                  评价
+                </el-button>
+                <el-button
+                  v-else-if="row.reviewId"
+                  link
+                  type="success"
+                  @click="goReview(row.productId)"
+                >
+                  查看评价
+                </el-button>
+                <span v-else class="muted">—</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </template>
+
         <template v-if="refund">
           <h4 class="sub-title">
             退款进度
@@ -242,6 +295,10 @@ onMounted(load)
 }
 .sub-title {
   margin: 20px 0 10px;
+}
+/* 不可评价的明细行占位符，保持操作列不出现空白跳动 */
+.muted {
+  color: #c0c4cc;
 }
 
 </style>

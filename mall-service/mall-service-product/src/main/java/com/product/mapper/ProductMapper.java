@@ -50,8 +50,28 @@ public interface ProductMapper {
     List<Product> findByIds(@Param("ids") Collection<Long> ids);
 
     // 浏览列表：关键词模糊 + 分类筛选 + 白名单排序 + 分页（仅 status=1 在售）
+    //
+    // 末尾两个**相关子查询**带出评价聚合（商品卡片要显示星级）。
+    //
+    // ⚠️ 刻意不用 `left join product_review … group by p.id`：
+    //    ① GROUP BY 在 LIMIT 之前聚合，必须扫完所有匹配商品，废掉索引分页；
+    //    ② 它只在 p.id 是主键时靠函数依赖合法（MySQL 8 的 ONLY_FULL_GROUP_BY），
+    //       换成非键列分组就运行时炸——给下一个人埋雷；
+    //    ③ 还得同步改 countProductList，两处条件漂移会让翻页错乱。
+    //    子查询只对返回的这几行各走一次 idx_product_rating，且完全不碰原查询结构。
+    //
+    // ⚠️ 这是本模块唯一一处**跨库读 order 库**。本仓已有跨库读先例
+    //    （下面 findProductByUserName 读 mall_service_user.user），共用一个 MySQL 实例。
+    //    但要清楚 blast radius：/product/list 是**公开**接口，若 mall_service_order 库
+    //    不存在（全新克隆、order 服务从没启动过），这里会让整个商品浏览 500，
+    //    而不是「评分不显示」。真要收紧边界，砍掉这两行即可。
+    //
+    // 无评价时 avg_rating 是 NULL（不是 0），前端据此整块不渲染——
+    // 显示「0.0 分」会把「没人评过」误报成「差评」。
     @Select("<script>" +
-            "select id,user_id,category_id,name,subtitle,main_image,price,original_price,status,created_time,updated_time " +
+            "select id,user_id,category_id,name,subtitle,main_image,price,original_price,status,created_time,updated_time, " +
+            "(select avg(r.rating) from mall_service_order.product_review r where r.product_id = product.id) as avg_rating, " +
+            "(select count(*)      from mall_service_order.product_review r where r.product_id = product.id) as review_count " +
             "from product where status=1 " +
             "<if test='keyword != null and keyword != \"\"'> and name like concat('%',#{keyword},'%')</if>" +
             "<if test='categoryId != null'> and category_id=#{categoryId}</if>" +

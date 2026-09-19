@@ -126,6 +126,19 @@
 | POST `/seller/withdraw/apply` | 卖家发起提现申请（body `{amount}`），审核在管理端 |
 | POST `/refund/apply` · GET `/refund/detail?orderId` · GET `/refund/list` | 买家申请退款 / 查看退款进度 / 我的退款单 |
 | GET `/seller/refunds` · POST `/seller/refund/audit` | 商家查看待审退款 / 审核（仅整单属于自己的订单） |
+| GET `/review/list?productId&page&size` | 某商品的评价分页（公开） |
+| GET `/review/stat?productId` | 某商品评价汇总：`avgRating`（**无评价时为 null**）/ `total` / 1-5 星分布 |
+| GET `/review/detail?id` | 单条评价（公开）。站内通知的「商家回复」深链靠它换出 `productId` |
+| GET `/review/mine?productId` | 我买过该商品、订单已完成、且尚未评价的订单列表（写评价弹框的订单选择器） |
+| POST `/review/create` | 写评价（body `{orderId, productId, rating, content}`） |
+| GET `/findOrderItems?orderId` | **买家**：订单明细 + 每行的 `canReview` / `reviewId`（含归属校验，非本人订单返回空数组） |
+| GET `/seller/reviews?onlyUnreplied&page&size` | **商家**：我商品的评价分页 |
+| POST `/seller/review/reply` | **商家**：回复评价（body `{reviewId, content}`），只能回复一次 |
+
+> **评价的资格规则**：只有 `order_status=3`（已完成）的订单能评价，且**每个订单每个商品一条**
+> （买两次可评两次）。判定被写进了 `insertEligibleReview` 的 `INSERT…SELECT` 本身——
+> 受影响行数 0 即不具备资格，没有 check-then-insert 窗口。
+> 详见 [domains.md](domains.md#商品评价)。
 
 ## /inventory
 

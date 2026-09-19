@@ -57,6 +57,54 @@
 
 > 各变动类型的幂等语义见 [events.md](events.md#库存扣减消费的幂等)。
 
+## 商品评价
+
+在 **order 服务**（`/order/review/*`），表 `product_review` 在 `mall_service_order` 库。
+
+**为什么放 order 服务**：「这个人买过这个商品吗」只有 order 库能答。
+放这里，资格校验与写入是同一条 SQL，没有 check-then-insert 窗口，也不新增任何依赖。
+若放 product 服务，每次写评价都要 Feign 问 order，而 order 已依赖 product，会双向依赖。
+
+### 资格规则与它防的坑
+
+| 规则 | 实现 |
+| ---- | ---- |
+| 只有**已完成**（`order_status=3`）的订单能评价 | `insertEligibleReview` 的 `WHERE o.order_status = 3` |
+| 只能评**自己**的订单 | `WHERE o.user_id = #{userId}`（登录态，非参数） |
+| 只能评订单里**确实有**的商品 | `join order_item … and oi.product_id = #{productId}` |
+| **每订单每商品一条**（买两次可评两次） | `UNIQUE uk_order_product(order_id, product_id)` |
+| 商家只能回复**自己商品**的评价、只能一次 | `WHERE id=? and seller_id=? and reply_content is null` |
+
+判定全部做进 SQL，**受影响行数 0 即不具备资格**——沿用本仓「条件 UPDATE + 受影响行数」
+的既有惯例，只是搬到了 `INSERT … SELECT` 上。任何一条不满足都得到同样的 0 行，
+也因此**不应该**为了让错误文案更精确而在前面加校验查询：那会把判定写两遍，并把窗口放回来。
+
+> ⚠️ `INSERT … SELECT` 里有一句 `and oi.id = (select min(oi2.id) …)` 看着多余，**但不能删**。
+> `order_item` 上没有 `UNIQUE(order_id, product_id)`，而 `createOrder` 逐条插入、不去重 productId——
+> 客户端传 `[{productId:7,qty:1},{productId:7,qty:2}]` 就能造出同商品的两行明细。
+> 少了这个条件会 join 出 2 行、撞唯一键、触发 **InnoDB 语句级回滚（0 行 + 异常）**，
+> 结果是**这个买家永远评不了这个商品**，还报「系统繁忙」。详见 `ProductReviewMapper`。
+
+### 通知
+
+评价写入/回复成功后，与业务**同一事务**经 outbox 投递 `review.created` / `review.replied`，
+user 服务消费后写站内通知（类型 10 / 11）。
+`ref_id` 必须是 **reviewId**——理由见 [events.md](events.md#站内通知的消费user-服务)。
+
+### 刻意的非目标
+
+- **退款不回收评价**：订单在评价后仍可走到 5退款中/6已退款，但评价保留。评价是历史事实，
+  且 5→3（退款被驳回）是合法转换，按状态实时过滤会让评价「消失又出现」。
+- **不阻止卖家买自己商品后评价**。
+- **不做评价排序**（只有 `order by id desc`）、不做追评。
+
+### 商品列表的星级
+
+`/product/list` 用两个**相关子查询**带出 `avg_rating` / `review_count`
+（不是 `left join … group by`——那会废掉索引分页，且只在主键分组时合法）。
+无评价时 `avgRating` 是 **NULL 而非 0**，前端整块不渲染，否则「没人评过」会被显示成「0 分」。
+这是 product 服务唯一一处跨库读 order 库，代价是 order 库不存在时商品浏览会 500。
+
 ## 消息通知与商店订阅
 
 都在 **user 服务**（`/message/*` 与 `/store/*`），复用 `mall_service_user` 库，
@@ -114,3 +162,4 @@
 - 上架后的下单链路： [order-lifecycle.md](order-lifecycle.md)
 - 库存流水如何保证不超卖： [operations.md](operations.md#超卖防护)
 - 通知消费的事件拓扑与幂等： [events.md](events.md#站内通知的消费user-服务)
+- 评价资格如何防住重复明细行： [ProductReviewMapper](../mall-service/mall-service-order/src/main/java/com/order/mapper/ProductReviewMapper.java)

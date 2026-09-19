@@ -28,6 +28,9 @@
 | 路由键 | `order.completed` | order 发布，**order 自身**消费（买家确认收货后生成商家结算明细）+ user 消费（站内通知） |
 | Queue | `q.order.completed` | 订单侧消费订单已完成（结算） |
 | 路由键 | `order.shipped` | order 发布，user 消费（给买家写「已发货」站内通知） |
+| 路由键 | `review.created` | order 发布，user 消费（给**卖家**写「你的商品收到新评价」） |
+| 路由键 | `review.replied` | order 发布，user 消费（给**买家**写「商家回复了你的评价」） |
+| Queue | `q.user.review.created` / `q.user.review.replied` | 用户侧消费评价通知（各绑各的队列） |
 | Queue | `q.user.order.created` | 用户侧消费下单事件（站内通知） |
 | Queue | `q.user.pay.success` | 用户侧消费支付成功（站内通知） |
 | Queue | `q.user.order.shipped` | 用户侧消费订单已发货（站内通知） |
@@ -160,6 +163,10 @@ order/inventory/payment 各自声明 `rabbitListenerContainerFactory`：
    买家侧通知的去重键是 `(user_id, type, ref_id)`，若按卖家逐条发，
    第二个卖家的那条会被**静默吞掉**（是丢失，不是重复）。见
    [OrderShippedEvent](../model/src/main/java/com/model/event/OrderShippedEvent.java) 的类注释。
+3. **评价类通知的 `ref_id` 必须是 `reviewId`**，不能用 `productId` / `orderId`——
+   同样是被去重键静默吞掉：用 `productId` 会让商家对同一商品只收到第一条评价通知
+   （「买两次可评两次」直接失效），用 `orderId` 会让同一订单里多条评价的回复互相顶掉。
+   见 [Notification.REF_REVIEW](../mall-service/mall-service-user/src/main/java/com/user/bean/Notification.java)。
 
 > **上线顺序**：`order.shipped` 是新路由键，先起 **user** 服务（声明 `q.user.order.shipped`），
 > 再起 order 服务。反了的话第一条 `order.shipped` 因无队列可路由而被退回，

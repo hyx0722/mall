@@ -16,6 +16,8 @@ package com.mall.common.rabbit;
  *   order 发布 order.refunded -> inventory 消费（退货入库，回补可用库存）
  *   order 发布 order.completed -> order 自身消费（生成商家结算明细）
  *   order 发布 order.shipped   -> user 消费（给买家写「已发货」站内通知）
+ *   order 发布 review.created  -> user 消费（给卖家写「商品收到新评价」）
+ *   order 发布 review.replied  -> user 消费（给买家写「商家回复了你的评价」）
  *
  * user 的站内通知还消费上面若干个事件（order.created / pay.success / order.canceled /
  * order.refunded / order.completed），各绑各的队列：q.user.*。user 服务**只消费不发布**。
@@ -66,6 +68,13 @@ public final class RabbitTopology {
      * 的类注释——消费侧的通知去重键会把同一订单的第二条静默吞掉。
      */
     public static final String RK_ORDER_SHIPPED = "order.shipped";
+
+    // ---------- 商品评价 ----------
+
+    /** order 发布：买家写了商品评价 -> user 消费（给卖家写「你的商品收到新评价」） */
+    public static final String RK_REVIEW_CREATED = "review.created";
+    /** order 发布：卖家回复了评价 -> user 消费（给买家写「商家回复了你的评价」） */
+    public static final String RK_REVIEW_REPLIED = "review.replied";
 
     // ---------- 支付超时延迟消息（DLX + per-message TTL） ----------
 
@@ -132,4 +141,8 @@ public final class RabbitTopology {
     public static final String Q_USER_ORDER_SHIPPED = "q.user.order.shipped";
     /** 用户侧：订单已完成 */
     public static final String Q_USER_ORDER_COMPLETED = "q.user.order.completed";
+    /** 用户侧：商品评价已创建（收件人是卖家） */
+    public static final String Q_USER_REVIEW_CREATED = "q.user.review.created";
+    /** 用户侧：卖家已回复评价（收件人是买家） */
+    public static final String Q_USER_REVIEW_REPLIED = "q.user.review.replied";
 }
