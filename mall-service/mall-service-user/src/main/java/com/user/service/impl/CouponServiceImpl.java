@@ -9,6 +9,7 @@ import com.model.exception.BusinessException;
 import com.user.bean.Coupon;
 import com.user.bean.CouponCreateRequest;
 import com.user.bean.CouponScope;
+import com.user.bean.Notification;
 import com.user.bean.UsableCouponVO;
 import com.user.bean.UserCoupon;
 import com.user.feign.ProductFeignClient;
@@ -16,6 +17,7 @@ import com.user.mapper.CouponMapper;
 import com.user.mapper.UserCouponMapper;
 import com.user.mapper.UserMapper;
 import com.user.service.CouponService;
+import com.user.service.NotificationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
@@ -49,6 +51,8 @@ public class CouponServiceImpl implements CouponService {
     UserMapper userMapper;
     @Autowired
     ProductFeignClient productFeignClient;
+    @Autowired
+    NotificationService notificationService;
 
     // ---------- 买家 ----------
 
@@ -260,14 +264,35 @@ public class CouponServiceImpl implements CouponService {
             }
             assertProductOwnedBy(s.getScopeId(), sellerId);
         }
-        doCreate(sellerId, request);
+        Coupon coupon = doCreate(sellerId, request);
+
+        // 扇出「新券」通知给订阅者。**只在这里做，不在 doCreate 里做**：
+        // doCreate 同时服务于管理员的平台券（seller_id=0），放进去会让每发一张平台券
+        // 都按 store_id=0 广播——而「平台」不是一个店，没有任何人订阅它。
+        // 放在 createForSeller 里，归属就是结构上正确的，不依赖运行时判断。
+        notificationService.fanOut(
+                sellerId,
+                Notification.TYPE_STORE_NEW_COUPON,
+                storeName(sellerId) + " 发新券了",
+                "「" + coupon.getName() + "」可在本店领取。",
+                Notification.REF_COUPON,
+                coupon.getId());
+    }
+
+    /** 通知文案里的店名。查不到时退回「该店铺」而不是拼出 null */
+    private String storeName(Long sellerId) {
+        String name = userMapper.findUsernameById(sellerId);
+        return name == null ? "该店铺" : name;
     }
 
     /**
      * 建券的公共部分。发券方由 {@code sellerId} 决定：
      * {@link Coupon#SELLER_PLATFORM} 是平台券（券中心可领），否则是该商家的店铺券（只在店铺页可领）。
+     *
+     * 返回建好的券（主键已由 DB 回填），供调用方拿 id 做通知的关联键。
+     * **本方法不发通知**——它同时服务于平台券，扇出放在商家侧调用点，见 {@link #createForSeller}。
      */
-    private void doCreate(Long sellerId, CouponCreateRequest request) {
+    private Coupon doCreate(Long sellerId, CouponCreateRequest request) {
         Coupon coupon = new Coupon();
         coupon.setSellerId(sellerId);
         coupon.setName(request.getName());
@@ -293,6 +318,7 @@ public class CouponServiceImpl implements CouponService {
                 couponMapper.insertScope(scope);
             }
         }
+        return coupon;
     }
 
     /**

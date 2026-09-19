@@ -15,6 +15,10 @@ package com.mall.common.rabbit;
  *   payment 发布 pay.refund.success -> order 消费（退款到账：退款中 -> 已退款）
  *   order 发布 order.refunded -> inventory 消费（退货入库，回补可用库存）
  *   order 发布 order.completed -> order 自身消费（生成商家结算明细）
+ *   order 发布 order.shipped   -> user 消费（给买家写「已发货」站内通知）
+ *
+ * user 的站内通知还消费上面若干个事件（order.created / pay.success / order.canceled /
+ * order.refunded / order.completed），各绑各的队列：q.user.*。user 服务**只消费不发布**。
  *
  * 支付超时走延迟消息：mall.order.delay.exchange 收到带 per-message TTL 的超时标记，
  * 进入无消费者持有队列 q.delay.order.timeout，TTL 到点死信回主交换机 order.timeout -> q.order.timeout。
@@ -54,6 +58,14 @@ public final class RabbitTopology {
      * 日后若通知中心等也要订阅，由那个服务自己声明自己的队列。
      */
     public static final String RK_ORDER_COMPLETED = "order.completed";
+
+    /**
+     * order 发布：订单已发货（最后一个卖家发货，1待发货 -> 2待收货）。
+     *
+     * ⚠️ 只在**整单**翻转时发布一次，不是每个卖家发一次。理由见 {@link com.model.event.OrderShippedEvent}
+     * 的类注释——消费侧的通知去重键会把同一订单的第二条静默吞掉。
+     */
+    public static final String RK_ORDER_SHIPPED = "order.shipped";
 
     // ---------- 支付超时延迟消息（DLX + per-message TTL） ----------
 
@@ -102,4 +114,22 @@ public final class RabbitTopology {
     public static final String Q_USER_ORDER_CANCELED = "q.user.order.canceled";
     /** 用户侧：订单已退款（退券）。与 inventory 回补库存同一个事件 */
     public static final String Q_USER_ORDER_REFUNDED = "q.user.order.refunded";
+
+    // ---------- 用户侧：站内通知（买家订单全链路） ----------
+    //
+    // 与上面两条退券队列同一个消费者服务、同一个交换机，只是各绑各的路由键。
+    // 「订单取消」「退款到账」两条通知**复用** Q_USER_ORDER_CANCELED / Q_USER_ORDER_REFUNDED，
+    // 不另开队列——同一条消息由同一个监听方法一次处理完退券与写通知。
+    //
+    // ⚠️ 绝不能给同一条队列挂第二个 @RabbitListener：那是两个竞争消费者，
+    //    Spring AMQP 会轮询投递，两个方法各拿到约一半消息，且**不报错、不进 DLQ**。
+
+    /** 用户侧：下单成功 */
+    public static final String Q_USER_ORDER_CREATED = "q.user.order.created";
+    /** 用户侧：支付成功 */
+    public static final String Q_USER_PAY_SUCCESS = "q.user.pay.success";
+    /** 用户侧：订单已发货 */
+    public static final String Q_USER_ORDER_SHIPPED = "q.user.order.shipped";
+    /** 用户侧：订单已完成 */
+    public static final String Q_USER_ORDER_COMPLETED = "q.user.order.completed";
 }

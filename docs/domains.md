@@ -57,6 +57,52 @@
 
 > 各变动类型的幂等语义见 [events.md](events.md#库存扣减消费的幂等)。
 
+## 消息通知与商店订阅
+
+都在 **user 服务**（`/message/*` 与 `/store/*`），复用 `mall_service_user` 库，
+不新增微服务、端口或网关路由。
+
+**「商店」在本仓没有独立实体**——商店就是卖家用户（商品靠 `product.user_id` 归属，
+店铺页是 `/store/:username`），所以 `store_subscription.store_id` 指的是 `user.id`，
+所有店铺接口也一律**收 username、服务端解析**（前端拿不到卖家 id）。
+
+三张新表（`User.sql` 第 6/7/8 张，`UserStartupSetup` 会在启动时幂等补建）：
+
+| 表 | 作用 |
+| ---- | ---- |
+| `store_subscription` | 订阅关系；`uk_user_store` 挡重复订阅 |
+| `store_message` | 商家发的公告 |
+| `notification` | 每个收件人一条消息；**只存 `store_id`，列表时批量补全店名** |
+
+### 通知从哪来
+
+| 触发 | 机制 | 类型 |
+| ---- | ---- | ---- |
+| 下单 / 支付 / 发货 / 完成 | user 消费 MQ 事件 | 1 / 2 / 3 / 4 |
+| 取消 / 退款到账 | user **复用现有的退券队列**，在同一个监听方法里顺带写 | 5 / 6 |
+| 商家发公告 | 落库后按订阅关系**一条 INSERT…SELECT** 群发 | 7 |
+| 商家上新商品 | `userToAddProduct` 成功后群发（**尽力而为**，失败不连累上架） | 8 |
+| 商家发店铺券 | `createForSeller` 后群发（**只在这里**，平台券不发） | 9 |
+
+> 商店侧三条**不走 MQ**：订阅表、公告表、券表、商品发布入口本来就都在 user 服务内，
+> 发事件等于自己发给自己。这也让 user 服务保持「只消费不发布」——没有 outbox 表。
+> 代价是直接调 `POST /product/addNumProduct` 建的商品不会产生上新通知，
+> 那是前端发布商品的唯一实际路径之外的旁路。
+
+> 去重靠 `notification.uk_user_type_ref(user_id, type, ref_id)`。三处都是刻意的：
+> 必须**含 `type`**（一张订单合法产生最多 6 条通知）、**含 `user_id`**（群发要写给 N 个人）、
+> 且 `ref_id` / `ref_type` **不能为 NULL**（MySQL 唯一索引视多个 NULL 为互不相同，会静默失效）。
+
+### 前端入口
+
+顶栏最右侧的**圆形铃铛**（`App.vue`，带未读数角标，30s 轮询）→ `/messages`；
+商家侧 `/seller/messages` 发公告。通知里的 `refType`/`refId` 由前端
+映射成路由（`ORDER→/order/:id`、`PRODUCT→/product/:id`、`COUPON`/`STORE→/store/:username`），
+后端不需要知道前端路由长什么样。
+
+> 优惠券通知指向**店铺页**而不是 `/coupons`：商家券只在自家店铺页可领，券中心只列平台券，
+> 指到券中心会让用户找不到那张券。
+
 ## 收货地址
 
 `user` 服务提供地址增删改查；**删除 / 修改 / 详情均带 `id AND user_id` 归属条件**，
@@ -67,3 +113,4 @@
 - 接口路径与参数： [api.md](api.md)
 - 上架后的下单链路： [order-lifecycle.md](order-lifecycle.md)
 - 库存流水如何保证不超卖： [operations.md](operations.md#超卖防护)
+- 通知消费的事件拓扑与幂等： [events.md](events.md#站内通知的消费user-服务)

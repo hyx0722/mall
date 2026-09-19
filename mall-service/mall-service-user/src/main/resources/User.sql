@@ -97,3 +97,59 @@ CREATE TABLE `user_coupon` (
                                KEY `idx_order_id` (`order_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户优惠券表';
 
+-- 6. 商店订阅（买家 -> 商店）
+--    「商店」在本仓没有独立实体：**商店就是卖家用户**（商品靠 product.user_id 归属，
+--    店铺页路由是 /store/:username）。所以 store_id 指的是 user.id。
+--    存量环境升级：库里没有本表时执行下面这条 CREATE TABLE 即可（无 ALTER）。
+CREATE TABLE `store_subscription` (
+                                      `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '订阅ID',
+                                      `user_id`      BIGINT UNSIGNED NOT NULL                COMMENT '订阅者用户ID（逻辑外键 -> user.id）',
+                                      `store_id`     BIGINT UNSIGNED NOT NULL                COMMENT '被订阅的商店ID（逻辑外键 -> user.id）',
+                                      `created_time` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '订阅时间',
+                                      PRIMARY KEY (`id`),
+                                      -- 重复订阅靠唯一键挡，不做「先查后插」（那是竞态来源）
+                                      UNIQUE KEY `uk_user_store` (`user_id`,`store_id`),
+                                      -- 发公告/上新/发券时按 store_id 群发订阅者
+                                      KEY `idx_store` (`store_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商店订阅表';
+
+-- 7. 商店公告（商家自己发的消息，发布即群发给订阅者；店铺页对所有人可见）
+CREATE TABLE `store_message` (
+                                 `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '公告ID',
+                                 `store_id`     BIGINT UNSIGNED NOT NULL                COMMENT '发布公告的商店ID（逻辑外键 -> user.id）',
+                                 `content`      VARCHAR(500)    NOT NULL                COMMENT '公告内容',
+                                 `created_time` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发布时间',
+                                 PRIMARY KEY (`id`),
+                                 -- 店铺页按店倒序取最新，商家中心按店列自己的
+                                 KEY `idx_store_time` (`store_id`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商店公告表';
+
+-- 8. 用户站内通知（「我的消息」的数据源）
+--    type：1下单 2支付 3发货 4完成 5取消 6退款 | 7商店公告 8上新 9新券
+--    ref_type/ref_id 供前端深链到订单详情 / 商品详情 / 店铺页；store_id 供列表批量补全店铺用户名。
+CREATE TABLE `notification` (
+                                `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '通知ID',
+                                `user_id`      BIGINT UNSIGNED NOT NULL                COMMENT '收件人用户ID（逻辑外键 -> user.id）',
+                                `type`         TINYINT         NOT NULL                COMMENT '类型：1下单 2支付 3发货 4完成 5取消 6退款 7商店公告 8上新 9新券',
+                                `title`        VARCHAR(100)    NOT NULL                COMMENT '标题',
+                                `content`      VARCHAR(500)    NOT NULL                COMMENT '正文',
+                                `ref_type`     VARCHAR(16)     NOT NULL DEFAULT ''     COMMENT '关联业务类型：ORDER/PRODUCT/COUPON/STORE；空串=无关联',
+                                `ref_id`       BIGINT UNSIGNED NOT NULL DEFAULT 0      COMMENT '关联业务主键（依 ref_type 解释）；0=无关联',
+                                `store_id`     BIGINT UNSIGNED NOT NULL DEFAULT 0      COMMENT '来源商店ID；0=非商店来源。列表按它批量补全店铺用户名',
+                                `is_read`      TINYINT(1)      NOT NULL DEFAULT 0      COMMENT '是否已读：1-是，0-否',
+                                `created_time` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                PRIMARY KEY (`id`),
+                                -- 幂等键：MQ 是 at-least-once，重投不能重复写通知；商店群发时同一
+                                -- (type, ref_id) 要写给 N 个用户，故必须带 user_id。
+                                --
+                                -- ⚠️ ref_id / ref_type 刻意是 NOT NULL DEFAULT 0/''：
+                                --    MySQL 唯一索引视多个 NULL 为互不相同，留 NULL 会让去重**静默**失效。
+                                -- ⚠️ 必须含 type：一张订单合法地产生最多 6 条通知（类型 1-6），
+                                --    只按 (user_id, ref_id) 去重会把它们全吞掉。
+                                UNIQUE KEY `uk_user_type_ref` (`user_id`,`type`,`ref_id`),
+                                -- 「全部」列表按收件人倒序翻页
+                                KEY `idx_user_time` (`user_id`,`id`),
+                                -- 未读数与「未读」筛选
+                                KEY `idx_user_unread` (`user_id`,`is_read`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户站内通知表';
+

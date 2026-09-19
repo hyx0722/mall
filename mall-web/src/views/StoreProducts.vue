@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { getOtherUser } from '../api/user'
 import { findProductsByUsername } from '../api/product'
 import { myCoupons, receiveCoupon, storeCoupons } from '../api/coupon'
+import { storeMessages, storeStatus, subscribeStore, unsubscribeStore } from '../api/store'
 import { money } from '../utils/format'
 import ProductCard from '../components/ProductCard.vue'
 
@@ -22,6 +23,56 @@ const size = ref(12)
 const coupons = ref([])
 const receivedIds = ref(new Set())
 const receiving = ref(false)
+
+// 订阅状态。后端按 username 定位商店，返回 { subscribed, subscriberCount }
+const subscribed = ref(false)
+const subscriberCount = ref(0)
+const subLoading = ref(false)
+
+// 店铺公告（对所有人可见，不要求订阅）
+const notices = ref([])
+
+async function loadStoreInfo() {
+  if (!username) return
+  try {
+    const info = await storeStatus(username)
+    subscribed.value = !!info?.subscribed
+    subscriberCount.value = Number(info?.subscriberCount || 0)
+  } catch {
+    // 订阅状态拿不到不该挡住整页，按钮保持默认的「订阅」
+  }
+}
+
+async function loadNotices() {
+  if (!username) return
+  try {
+    const res = await storeMessages(username, 1, 20)
+    notices.value = res?.items || []
+  } catch {
+    notices.value = []
+  }
+}
+
+async function onToggleSubscribe() {
+  subLoading.value = true
+  try {
+    if (subscribed.value) {
+      await unsubscribeStore(username)
+      subscribed.value = false
+      subscriberCount.value = Math.max(0, subscriberCount.value - 1)
+      ElMessage.success('已取消订阅')
+    } else {
+      await subscribeStore(username)
+      subscribed.value = true
+      subscriberCount.value += 1
+      ElMessage.success('订阅成功，店铺上新与发券会通知你')
+    }
+  } catch {
+    // 错误提示由 api 拦截器统一处理（如「不能订阅自己的店铺」）
+  } finally {
+    subLoading.value = false
+  }
+}
 
 async function loadCoupons() {
   if (!username) return
@@ -93,6 +144,8 @@ function isNormal() {
 onMounted(async () => {
   await loadSeller()
   loadCoupons()
+  loadStoreInfo()
+  loadNotices()
   load()
 })
 </script>
@@ -114,8 +167,32 @@ onMounted(async () => {
             <el-tag v-if="isNormal()" type="success" size="small" class="st">正常</el-tag>
             <el-tag v-else-if="seller" type="danger" size="small" class="st">停用</el-tag>
           </div>
-          <div class="shop-sub">卖家店铺 · 共 {{ list.length }} 件在售（本页）</div>
+          <div class="shop-sub">
+            卖家店铺 · 共 {{ list.length }} 件在售（本页） · {{ subscriberCount }} 人订阅
+          </div>
         </div>
+        <el-button
+          :type="subscribed ? 'default' : 'primary'"
+          :loading="subLoading"
+          class="sub-btn"
+          @click="onToggleSubscribe"
+        >
+          {{ subscribed ? '已订阅' : '订阅店铺' }}
+        </el-button>
+      </div>
+    </el-card>
+
+    <!-- 店铺公告：对所有人可见，订阅的作用是「新公告推送到我的消息」 -->
+    <el-card v-if="notices.length" class="notice-card" shadow="never">
+      <template #header>
+        <div class="cc-head">
+          <span class="cc-title">店铺公告</span>
+          <span class="cc-sub">订阅后可第一时间收到新公告</span>
+        </div>
+      </template>
+      <div v-for="m in notices" :key="m.id" class="notice">
+        <div class="notice-content">{{ m.content }}</div>
+        <div class="notice-time">{{ (m.createdTime || '').replace('T', ' ').slice(0, 16) }}</div>
       </div>
     </el-card>
 
@@ -188,6 +265,32 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+/* 订阅按钮推到卡片右端，与左侧头像+店名分开 */
+.sub-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.notice-card {
+  margin-bottom: 16px;
+}
+.notice {
+  padding: 8px 0;
+  border-bottom: 1px dashed #ebeef5;
+}
+.notice:last-child {
+  border-bottom: none;
+}
+.notice-content {
+  color: #606266;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+.notice-time {
+  margin-top: 4px;
+  color: #a8abb2;
+  font-size: 12px;
 }
 .shop-avatar {
   background: #67c23a;

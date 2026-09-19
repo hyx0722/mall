@@ -26,6 +26,8 @@ import java.util.Map;
  *   order 发布 order.canceled -> inventory 释放锁定 / payment 关闭未付支付单
  *   inventory 回执 inventory.deducted / inventory.deduct_failed -> order 消费
  *   payment 回执 pay.success -> order 消费（支付成功：待付款 -> 待发货）
+ *   order 发布 order.shipped -> user 消费（给买家写「已发货」站内通知；
+ *                                队列由 user 侧声明，本服务只声明交换机）
  *
  * 支付超时（延迟消息 DLX + per-message TTL）：
  *   mall.order.delay.exchange 承载带 TTL 的超时标记，进入无消费者持有队列 q.delay.order.timeout，
@@ -54,6 +56,17 @@ public class OrderRabbitConfig {
     public static final String Q_ORDER_COMPLETED = RabbitTopology.Q_ORDER_COMPLETED;
     public static final String RK_ORDER_REFUNDED = RabbitTopology.RK_ORDER_REFUNDED;
     public static final String Q_ORDER_REFUND_SUCCESS = RabbitTopology.Q_ORDER_REFUND_SUCCESS;
+
+    /**
+     * order 发布：订单已发货（最后一个卖家发货，1待发货 -> 2待收货）。
+     *
+     * <p>⚠️ <b>这里只导出常量，**不要**为本事件声明队列。</b>
+     * 队列由消费者（user 服务的 {@code q.user.order.shipped}）自己声明，这是本仓的既有约定
+     * （见 {@link RabbitTopology#RK_ORDER_COMPLETED} 的注释）。在本配置里多声明一条队列，
+     * 结果是多出一条**没有监听器**的队列：消息进去只是堆积，且真正出问题时
+     * 会让人误以为消费端已经在处理。
+     */
+    public static final String RK_ORDER_SHIPPED = RabbitTopology.RK_ORDER_SHIPPED;
 
     public static final String DELAY_EXCHANGE = RabbitTopology.DELAY_EXCHANGE;
     public static final String RK_DELAY_ORDER_TIMEOUT = RabbitTopology.RK_DELAY_ORDER_TIMEOUT;

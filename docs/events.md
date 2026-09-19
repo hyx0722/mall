@@ -22,11 +22,16 @@
 | Queue | `q.pay.refund.request` | 支付侧消费退款指令（单队列，按 `action` 分派） |
 | Queue | `q.order.refund.success` | 订单侧消费退款到账回执 |
 | Queue | `q.inventory.order.refunded` | 库存侧消费退货入库事件 |
-| Queue | `q.user.order.canceled` | 用户侧消费订单取消（退券） |
-| Queue | `q.user.order.refunded` | 用户侧消费订单已退款（退券） |
+| Queue | `q.user.order.canceled` | 用户侧消费订单取消（退券 + 站内通知） |
+| Queue | `q.user.order.refunded` | 用户侧消费订单已退款（退券 + 站内通知） |
 | Queue | `q.user.dlq` | 用户侧死信落点 |
-| 路由键 | `order.completed` | order 发布，**order 自身**消费（买家确认收货后生成商家结算明细） |
+| 路由键 | `order.completed` | order 发布，**order 自身**消费（买家确认收货后生成商家结算明细）+ user 消费（站内通知） |
 | Queue | `q.order.completed` | 订单侧消费订单已完成（结算） |
+| 路由键 | `order.shipped` | order 发布，user 消费（给买家写「已发货」站内通知） |
+| Queue | `q.user.order.created` | 用户侧消费下单事件（站内通知） |
+| Queue | `q.user.pay.success` | 用户侧消费支付成功（站内通知） |
+| Queue | `q.user.order.shipped` | 用户侧消费订单已发货（站内通知） |
+| Queue | `q.user.order.completed` | 用户侧消费订单已完成（站内通知） |
 | Queue | `q.inventory.order.created` | 库存侧消费下单事件 |
 | Queue | `q.inventory.order.canceled` | 库存侧消费订单取消事件（释放锁定库存） |
 | Queue | `q.pay.order.canceled` | 支付侧消费订单取消事件（关闭未付支付单） |
@@ -139,6 +144,32 @@ order/inventory/payment 各自声明 `rabbitListenerContainerFactory`：
 > 这个唯一键是**幂等的核心机制**，取消释放（`change_type=4`）与退货入库（`change_type=6`）
 > 用同一个键的不同 `change_type` 值各自幂等，互不干扰。`change_type` 取值见 `inventory.sql` 注释：
 > 1入库 / 2出库 / 3锁定 / 4释放锁定 / 5扣减 / 6退货入库。
+
+### 站内通知的消费（user 服务）
+
+「我的消息」的订单类通知由 user 服务消费 6 个事件写入（见
+[domains.md](domains.md#消息通知与商店订阅)）。这里只记两条**踩了不会有报错**的规矩：
+
+1. **一条队列只能有一个 `@RabbitListener`。** `q.user.order.canceled` 与
+   `q.user.order.refunded` 早已被退券消费者持有，所以「订单取消」「退款到账」两条通知
+   写在**现有处理方法的函数体里**，而不是新加一个监听器。给同一条队列挂两个监听方法
+   会产生两个**竞争消费者**，Spring AMQP 轮询投递，两个方法各拿到约一半消息——
+   **不报错、不记日志、不进 DLQ**，只表现为两张功能都时灵时不灵。
+   站内通知的另外 4 条队列（created / pay.success / shipped / completed）没有这个问题。
+2. **`order.shipped` 只在整单发货完成时发布一次**，不是每个卖家发一次。
+   买家侧通知的去重键是 `(user_id, type, ref_id)`，若按卖家逐条发，
+   第二个卖家的那条会被**静默吞掉**（是丢失，不是重复）。见
+   [OrderShippedEvent](../model/src/main/java/com/model/event/OrderShippedEvent.java) 的类注释。
+
+> **上线顺序**：`order.shipped` 是新路由键，先起 **user** 服务（声明 `q.user.order.shipped`），
+> 再起 order 服务。反了的话第一条 `order.shipped` 因无队列可路由而被退回，
+> relay 重试 20 次后把 outbox 行置 `status=3 已放弃`，通知**永久丢失**
+> （各服务的启动顺序见 [getting-started.md](getting-started.md)）。
+
+> **幂等**：MQ 是 at-least-once，重复投递靠 `notification.uk_user_type_ref`
+> 唯一键挡掉，插入路径捕获 `DuplicateKeyException` 后静默返回。
+> 若某次改动让重投开始落 `q.user.dlq`，那不是「通知重复」的小问题——
+> 说明异常没被吞掉，真毒消息会被埋在同一堆 DLQ 里。
 
 ## 相关文档
 

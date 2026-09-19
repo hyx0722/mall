@@ -24,6 +24,8 @@ const routes = [
   { path: '/order/:id', name: 'order-detail', component: () => import('../views/OrderDetail.vue'), meta: { requiresAuth: true } },
   // 支付
   { path: '/pay', name: 'pay', component: () => import('../views/Pay.vue'), meta: { requiresAuth: true } },
+  // 站内通知：顶栏铃铛入口 + 「我的消息」
+  { path: '/messages', name: 'messages', component: () => import('../views/Messages.vue'), meta: { requiresAuth: true } },
   // 个人中心与收货地址
   { path: '/profile', name: 'profile', component: () => import('../views/Profile.vue'), meta: { requiresAuth: true } },
   { path: '/address', name: 'address', component: () => import('../views/AddressManage.vue'), meta: { requiresAuth: true } },
@@ -35,6 +37,8 @@ const routes = [
   { path: '/seller/coupons', name: 'seller-coupons', component: () => import('../views/SellerCoupons.vue'), meta: { requiresAuth: true } },
   // 卖家中心：商品与订单数据看板（折线图）
   { path: '/seller/stats', name: 'seller-stats', component: () => import('../views/SellerStats.vue'), meta: { requiresAuth: true } },
+  // 卖家中心：发布店铺公告（发布即群发给订阅者）
+  { path: '/seller/messages', name: 'seller-messages', component: () => import('../views/SellerMessages.vue'), meta: { requiresAuth: true } },
 ]
 
 const router = createRouter({

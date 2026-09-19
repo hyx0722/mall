@@ -45,6 +45,25 @@
 | PUT `/seller/coupon/status?couponId&status` | **商家**：启停自家的券（条件 UPDATE 带 `seller_id`，改不动别人的） |
 | POST `/coupon/preview` | **服务间**：用券试算（body 传商品快照明细），只读 |
 | POST `/coupon/use?userCouponId&orderId` | **服务间**：核销（下单事务内调用，失败即让下单回滚） |
+| GET `/message/list?category&isRead&page&size` | 我的消息：`category` = `all`(默认)/`order`/`store`，`isRead` 不传即全部（0未读 1已读） |
+| GET `/message/unreadCount` | 未读数（顶栏铃铛角标；前端轮询时**必须静默失败**，见 `api/request.js` 的 `_silent`） |
+| PUT `/message/read?id` · PUT `/message/readAll` | 单条 / 全部标已读 |
+| DELETE `/message/delete?id` | 删除单条消息 |
+| GET `/store/status?username` | 店铺页：`{ username, subscribed, subscriberCount }` |
+| POST `/store/subscribe?username` · POST `/store/unsubscribe?username` | 订阅 / 退订店铺（均幂等；不能订阅自己的店） |
+| GET `/store/my` | 我订阅的商店用户名列表 |
+| GET `/store/message/list?username&page&size` | 某店的店铺公告（**不要求订阅**，店铺页对所有人可见） |
+| POST `/store/seller/message/create` | **商家**：发布公告（body `{content}`，≤500 字）；落库 + 群发给订阅者，同事务 |
+| GET `/store/seller/message/list?page&size` | **商家**：我发过的公告 |
+| DELETE `/store/seller/message/delete?id` | **商家**：删除自己的公告（已投递的通知不回收） |
+
+> **消息类接口没有「创建」入口**：通知是业务事实的产物（订单推进、商店更新），
+> 不是可以手工 POST 的资源。所有读写的 `userId` 一律取自登录态，
+> 没有任何一个接口收 `userId` 参数。详见 [domains.md](domains.md#消息通知与商店订阅)。
+
+> **`/store/*` 全部按 `username` 而不是 storeId**：店铺页路由是 `/store/:username`，
+> 而 `/ortherUser` 只返回 username/avatar/status，前端拿不到卖家 id，由服务端解析。
+> 与 `/coupon/store?username` 是同一套做法。
 
 > 券的**定义与归属**都在 user 服务，但**核销**发生在 order 服务下单那一刻，靠 Feign 同步调用
 > `/coupon/preview` 与 `/coupon/use`。可用性规则（门槛、有效期、指定商品/分类）只在 user 侧实现一份。

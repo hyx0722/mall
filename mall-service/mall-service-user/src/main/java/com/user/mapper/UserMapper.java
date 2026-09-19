@@ -6,6 +6,9 @@ import com.model.bean.User;
 import com.user.bean.UserAddress;
 import org.apache.ibatis.annotations.*;
 
+import java.util.Collection;
+import java.util.List;
+
 
 
 @Mapper
@@ -27,6 +30,21 @@ public interface UserMapper  extends BaseMapper<User> {
 
     @Select("select username,avatar,status from user where username=#{username}")
     User findOtherUserByUsername(@Param("username") String username);
+
+    // ---------- 按 id 查用户名（通知列表的店铺补全、店铺页按用户名定位商家） ----------
+
+    @Select("select username from user where id=#{id}")
+    String findUsernameById(@Param("id") Long id);
+
+    /**
+     * 批量按 id 取用户名，供通知列表一次性补全店铺名——不要在循环里逐个查。
+     *
+     * 店铺页是按用户名访问的（{@code /store/:username}），而通知行里只存了 store_id，
+     * 所以这里必须补出 username，前端才能拼出 /store/:username 的跳转。
+     */
+    @Select("<script>select id,username from user where id in "
+            + "<foreach collection='ids' item='i' open='(' separator=',' close=')'>#{i}</foreach></script>")
+    List<User> findUsernamesByIds(@Param("ids") Collection<Long> ids);
 
     @Delete("delete from user where username=#{username}")
     void delete(@Param("username") String username);

@@ -10,6 +10,7 @@ import com.model.enums.OrderStatus;
 import com.model.event.InventoryResultEvent;
 import com.model.event.OrderCompletedEvent;
 import com.model.event.OrderCreatedEvent;
+import com.model.event.OrderShippedEvent;
 import com.model.event.OrderTimeoutEvent;
 import com.model.event.PaySuccessEvent;
 import com.model.exception.BusinessException;
@@ -373,7 +374,33 @@ public class OrderServiceImpl implements OrderService {
         long total = orderMapper.countTotalSellers(orderId);
         if (shipped >= total && orderMapper.markFullyShipped(orderId) > 0) {
             log.info("[order] 订单 {} 全部卖家已发货 -> 待收货", orderId);
+            // 同事务入箱 order.shipped。**必须挂在这个分支上**（即整单翻转的那一次），
+            // 不能每个卖家发一次：买家侧的通知去重键是 (user_id, type, ref_id)，
+            // 第二个卖家的那条会被**静默吞掉**——是丢失，不是重复，比重复难查得多。
+            // 放在这里天然每张订单恰好一次：markFullyShipped 是带 order_status=1 的条件
+            // UPDATE（只有第一次返回 >0），且上面第 3 步已挡掉同一卖家的重复发货。
+            enqueueOrderShipped(order, logisticsCompany, trackingNo);
         }
+    }
+
+    /**
+     * 入箱 order.shipped。
+     *
+     * ⚠️ 必须走 {@code outboxService.enqueue}：直接 {@code rabbitTemplate.send} 会绕过 outbox 行，
+     * 而 {@code ReturnsCallback} 是靠消息里的 outbox 行 id 反查行号的——绕过之后消息一旦
+     * 无法路由就被丢弃，且**不进任何指标**（见 OutboxConfirmInstaller 的说明）。
+     *
+     * 事件体里带的是**最后一个卖家**的物流信息，且两个字段都可空（ShipRequest 未加约束）。
+     * 买家要看全部发货单得进订单详情。
+     */
+    private void enqueueOrderShipped(Order order, String logisticsCompany, String trackingNo) {
+        OrderShippedEvent event = new OrderShippedEvent();
+        event.setOrderNo(order.getOrderNo());
+        event.setOrderId(order.getId());
+        event.setUserId(order.getUserId());
+        event.setLogisticsCompany(logisticsCompany);
+        event.setTrackingNo(trackingNo);
+        outboxService.enqueue(OrderRabbitConfig.ORDER_EXCHANGE, OrderRabbitConfig.RK_ORDER_SHIPPED, null, event);
     }
 
     @Override
