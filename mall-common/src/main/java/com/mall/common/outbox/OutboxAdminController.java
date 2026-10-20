@@ -1,5 +1,6 @@
 package com.mall.common.outbox;
 
+import com.mall.common.audit.AuditLog;
 import com.mall.common.web.Auths;
 import com.model.bean.Result;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,6 +34,7 @@ import java.util.List;
  * {@code /order/admin/outbox/**}、{@code /pay/admin/outbox/**}、{@code /inventory/admin/outbox/**}。
  */
 @RestController
+@AuditLog(target = "OUTBOX")
 public class OutboxAdminController {
 
     /** 单次操作的上限。有界是刻意的：一次调用不该把整个积压翻过来冲垮 broker */
@@ -60,6 +62,7 @@ public class OutboxAdminController {
     }
 
     /** 重投已放弃的事件，返回本次实际重投条数（重复调用返回 0，天然幂等） */
+    @AuditLog("重投 outbox 事件")
     @PostMapping("/admin/outbox/requeue")
     public Result<Integer> requeue(@RequestParam(required = false) Integer limit) {
         Auths.requireAdmin();

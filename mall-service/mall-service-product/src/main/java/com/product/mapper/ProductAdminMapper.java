@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
+import java.util.Map;
 @Mapper
 public interface ProductAdminMapper {
 
@@ -29,4 +30,16 @@ public interface ProductAdminMapper {
     // 管理员对任意商品上/下架（不带归属）
     @Update("update product set status=#{status}, updated_time=now() where id=#{id}")
     int updateStatusById(@Param("id") Long id, @Param("status") Integer status);
+
+    // ---------- 管理员：看板 ----------
+
+    /** 商品概览：总数 / 在售 / 下架 / 分类数 */
+    @Select("""
+            select count(*)                                                    as totalProducts,
+                   coalesce(sum(case when status = 1 then 1 else 0 end), 0)    as onSale,
+                   coalesce(sum(case when status = 0 then 1 else 0 end), 0)    as offSale,
+                   (select count(*) from category)                             as categoryCount
+            from product
+            """)
+    Map<String, Object> dashboard();
 }

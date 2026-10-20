@@ -1,5 +1,6 @@
 package com.product;
 
+import com.mall.common.audit.AuditConfig;
 import com.mall.common.logging.LogCleanupConfig;
 import com.mall.common.web.CommonWebConfig;
 import com.model.web.GlobalExceptionHandler;
@@ -17,7 +18,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EnableScheduling
 // 商品/分类读路径的缓存。装配细节（含降级策略）见 com.product.config.ProductCacheConfig
 @EnableCaching
-@Import({GlobalExceptionHandler.class, CommonWebConfig.class, LogCleanupConfig.class})
+@Import({GlobalExceptionHandler.class, CommonWebConfig.class, LogCleanupConfig.class, AuditConfig.class})
 public class MallServiceProductApplication {
     public static void main(String[] args) {
         SpringApplication.run(MallServiceProductApplication.class,args);

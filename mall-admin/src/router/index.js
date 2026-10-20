@@ -3,7 +3,13 @@ import { token, role, loadProfile } from '../stores/auth'
 
 const routes = [
   { path: '/login', name: 'login', component: () => import('../views/Login.vue') },
-  { path: '/', redirect: '/users' },
+  { path: '/', redirect: '/dashboard' },
+  {
+    path: '/dashboard',
+    name: 'dashboard',
+    component: () => import('../views/Dashboard.vue'),
+    meta: { requiresAdmin: true },
+  },
   {
     path: '/users',
     name: 'users',
@@ -44,6 +50,12 @@ const routes = [
     path: '/coupons',
     name: 'coupons',
     component: () => import('../views/CouponManage.vue'),
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/audit',
+    name: 'audit',
+    component: () => import('../views/AuditLog.vue'),
     meta: { requiresAdmin: true },
   },
 ]

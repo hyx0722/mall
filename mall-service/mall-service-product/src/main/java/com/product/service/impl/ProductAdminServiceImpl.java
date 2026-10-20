@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 @Service
 public class ProductAdminServiceImpl implements ProductAdminService {
 
@@ -40,6 +41,12 @@ public class ProductAdminServiceImpl implements ProductAdminService {
         }
         List<Product> items = productAdminMapper.pageAllProducts(kw, (p - 1) * s, s);
         return new PageBean<>(total, items);
+    }
+
+    @Override
+    public Map<String, Object> dashboard() {
+        Map<String, Object> stats = productAdminMapper.dashboard();
+        return stats == null ? Map.of() : stats;
     }
 
     @Override

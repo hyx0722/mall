@@ -1,5 +1,6 @@
 package com.user.controller;
 
+import com.mall.common.audit.AuditLog;
 import com.mall.common.web.Auths;
 import com.model.bean.Result;
 import com.user.bean.Coupon;
@@ -21,6 +22,7 @@ import java.util.List;
 /** 优惠券管理端。与其它 /admin/* 一致：网关无 /admin 路由，对外是 /user/admin/coupon/*。 */
 @RestController
 @Validated
+@AuditLog(target = "COUPON")
 public class CouponAdminController {
 
     @Autowired
@@ -34,6 +36,7 @@ public class CouponAdminController {
         return Result.success(list);
     }
 
+    @AuditLog("创建优惠券")
     @PostMapping("/admin/coupon/create")
     public Result create(@RequestBody @Valid CouponCreateRequest request) {
         Auths.requireAdmin();
@@ -42,6 +45,7 @@ public class CouponAdminController {
     }
 
     /** 上下架；status：1-启用，0-停用 */
+    @AuditLog("优惠券上下架")
     @PutMapping("/admin/coupon/status")
     public Result updateStatus(@RequestParam @NotNull Long couponId, @RequestParam @NotNull Integer status) {
         Auths.requireAdmin();

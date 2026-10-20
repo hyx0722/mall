@@ -10,12 +10,13 @@
 mvn test
 ```
 
-仓库**共 10 个测试类**——数量少是刻意的：测试集中守几处「靠约定维持、重构时容易被静默破坏」的不变量，
+仓库**共 11 个测试类**——数量少是刻意的：测试集中守几处「靠约定维持、重构时容易被静默破坏」的不变量，
 这类东西功能测试测不出来，只能专门守住。
 
 | 模块 | 测试 | 守住什么 |
 | ---- | ---- | ---- |
 | `mall-common` | `IdentityContextTest` | 身份写入 ThreadLocal 后**必须在请求结束被清除**。漏掉 `remove()` 时，线程池复用会让下一个请求继承上一个请求的身份，表现为随机、极难复现的越权 |
+| `mall-common` | `AuditLogSanitizerTest` | 审计日志的查询参数里 password / newPassword / token / secret 必须被替换为 `***`。审计表最危险的失败模式不是漏记，而是把密码记下来 |
 | `mall-common` | `OutboxConfigTest` | `OutboxConfig` 确实导出 outbox 的两个 bean，且 `OutboxService` **是事务代理**——否则 `enqueueNewTx` 的 `REQUIRES_NEW` 不生效，扣减失败回执会随业务事务回滚 |
 | `mall-common` | `OutboxConfirmInstallerTest` | 发布确认回调按 `id` 正确路由到 `markDelivered` / `markRejected` / `markUnroutable`；**退回回调必须靠 `messageId` 反查行号**（`ReturnsCallback` 拿不到 `CorrelationData`），改用它就会静默失效；反查不到行号时不得抛异常（回调跑在 broker 连接线程上） |
 | `mall-service-user` | `CouponServiceImplTest` | 优惠券抵扣计算是**全仓唯一会算错钱**的地方，且错法都很安静：未达门槛仍抵扣、满减面额超过商品金额导致**倒找钱**、折扣的无限小数不 `setScale` 攒出分位差、范围限定把不参与的商品也算进门槛 |
@@ -42,7 +43,7 @@ mvn test
 | 测试 | 无 Docker 时 | 为什么 |
 | ---- | ---- | ---- |
 | `InventoryMapperConcurrencyTest` | **失败** | 它守的是超卖这条命脉，静默跳过等于没人守 |
-| `OutboxServiceImplTest` | **跳过**（`disabledWithoutDocker`） | `mall-common` 原有三个测试刻意都是零基础设施的（任何机器上都能跑），不该因为新增一个测试就把本模块的 `mvn test` 变成必须装 Docker |
+| `OutboxServiceImplTest` | **跳过**（`disabledWithoutDocker`） | `mall-common` 的零基础设施测试刻意保持任何机器都能跑，不该因为新增一个测试就把本模块的 `mvn test` 变成必须装 Docker |
 
 CI 自带 Docker，两者都会正常执行。
 
@@ -164,6 +165,39 @@ logs 根目录下**按服务名分目录**，一个服务的滚动文件不会�
   `-Dmall.log.retention-minutes=0 -Dmall.log.cleanup-interval-ms=10000`。
 - ⚠️ **`product` / `user` / `gateway` 三个启动类原本没有 `@EnableScheduling`**，本次一并加上——
   漏了不会有任何编译期信号，只表现为日志永远不被清理。
+
+## 管理员审计日志
+
+审计是**旁路**：它记录管理员改了什么，但任何审计失败都不允许影响业务。
+
+- **表**：user / product / order / inventory / payment 五个服务**各自的库**里一张 `audit_log`。
+  启动时由 `AuditLogRepository` 执行 `CREATE TABLE IF NOT EXISTS` 自动补建（存量库不用手工迁移），
+  DDL 同时同步在各服务的 `*.sql`。
+- **写入**：`mall-common` 的 `AuditLogAspect` 拦截标了 `@AuditLog` 的 Controller 的**写操作**。
+  GET / HEAD / OPTIONS 直接跳过（查询不产生审计），并要求路径含 `/admin/`，避免把商家接口误记进来。
+  业务抛异常也会记一条 `result=0` 并带 `error_msg`；**落库异常只打 WARN**，交易照常返回。
+- **内容**：操作人（id/用户名/角色）、服务、动作、对象类型与 id、HTTP 方法/路径、
+  **脱敏后的查询参数**、结果、IP、User-Agent。**请求体不落库**——管理员重置密码的
+  `newPassword` 不会进入日志；查询参数里的 password/token/secret 由 `AuditLogSanitizer` 替换为 `***`。
+- **查询**：`GET /{user|product|order|inventory|pay}/admin/audit/logs`，管理员专用，
+  支持按操作人、动作、结果、日期分页过滤。管理后台的「审计日志」页按服务查询；
+  「全部服务」是各服务最近 100 条的聚合视图。
+- **边界**：日志与业务同库，删库会一起丢；它是操作留痕，不是合规级 WORM 存储。
+
+## 管理后台看板
+
+看板由**前端组合**四个服务的统计接口，而不是新增一个 BFF 或跨库查询：
+
+| 数据块 | 来源 |
+| --- | --- |
+| GMV、订单量/状态分布/趋势、热销商品、退款待办、最近订单 | `GET /order/admin/dashboard?days=` |
+| 用户总数、今日新增、注册趋势 | `GET /user/admin/stats?days=` |
+| 商品总数、在售/下架、分类数 | `GET /product/admin/stats` |
+| SKU 数、可用/锁定库存、缺货、库存预警 | `GET /inventory/admin/stats` |
+
+口径：GMV 与销售额均为**实付**（`total_amount − discount_amount`），只含已支付状态
+（1待发货/2待收货/3已完成/5退款中/6已退款）；趋势的空缺日补 0，避免折线跳过没下单的日期。
+四个请求并行发出，单个服务失败时其余卡片照常渲染，前端只汇总提示一次。
 
 ## 关键设计与已知边界
 

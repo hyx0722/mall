@@ -1,5 +1,6 @@
 package com.order.controller;
 
+import com.mall.common.audit.AuditLog;
 import com.mall.common.web.Auths;
 import com.model.bean.Order;
 import com.model.bean.Result;
@@ -24,9 +25,12 @@ import java.util.List;
 /**
  * 管理员订单接口（内部系统，网关 /order/admin/** 前缀 + role=2 校验）。
  * 注意：必须带 @RestController，否则本类不会被注册为 Bean，所有映射都不会生效。
+ *
+ * <p>类上的 {@link AuditLog} 让审核类写操作自动进入审计日志。</p>
  */
 @RestController
 @Validated
+@AuditLog(target = "ORDER")
 public class OrderAdminController {
 
     @Autowired
@@ -46,6 +50,7 @@ public class OrderAdminController {
     }
 
     /** 审核提现：通过即视为已打款（本仓未接真实出款通道），并把对应结算明细置为已提现 */
+    @AuditLog("审核提现")
     @PostMapping("/admin/withdraw/audit")
     public Result adminWithdrawAudit(@RequestBody @Validated WithdrawAuditRequest request) {
         Auths.requireAdmin();
@@ -88,6 +93,7 @@ public class OrderAdminController {
     }
 
     // 审核退款申请：通过 -> 转 payment 打款；驳回 -> 订单回退到申请前状态
+    @AuditLog("审核退款")
     @PostMapping("/admin/refund/audit")
     public Result adminRefundAudit(@RequestBody @Validated RefundAuditRequest request) {
         Auths.requireAdmin();

@@ -4,6 +4,7 @@ import com.model.bean.Inventory;
 import com.model.bean.Product;
 
 import java.util.List;
+import java.util.Map;
 
 public interface InventoryFeignService {
 
@@ -23,4 +24,7 @@ public interface InventoryFeignService {
 
     /** 管理员：查询库存（可按商品 id 过滤） */
     List<Inventory> listAllInventory(Long productId);
+
+    /** 管理后台看板的库存侧统计：SKU / 可用 / 锁定 / 缺货 / 预警 */
+    Map<String, Object> dashboard();
 }

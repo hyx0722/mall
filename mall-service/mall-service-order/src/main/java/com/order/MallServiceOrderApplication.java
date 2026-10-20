@@ -1,5 +1,6 @@
 package com.order;
 
+import com.mall.common.audit.AuditConfig;
 import com.mall.common.feign.CommonFeignConfig;
 import com.mall.common.logging.LogCleanupConfig;
 import com.mall.common.metrics.OutboxMetricsConfig;
@@ -18,7 +19,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EnableFeignClients
 @EnableTransactionManagement
 @Import({GlobalExceptionHandler.class, CommonWebConfig.class, CommonFeignConfig.class,
-        LogCleanupConfig.class, OutboxMetricsConfig.class, OutboxConfig.class})
+        LogCleanupConfig.class, OutboxMetricsConfig.class, OutboxConfig.class, AuditConfig.class})
 public class MallServiceOrderApplication {
     public static void main(String[] args) {
         SpringApplication.run(MallServiceOrderApplication.class,args);

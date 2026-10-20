@@ -1,5 +1,6 @@
 package com.payment;
 
+import com.mall.common.audit.AuditConfig;
 import com.mall.common.feign.CommonFeignConfig;
 import com.mall.common.logging.LogCleanupConfig;
 import com.mall.common.metrics.OutboxMetricsConfig;
@@ -20,7 +21,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EnableTransactionManagement
 @EnableScheduling
 @Import({GlobalExceptionHandler.class, CommonWebConfig.class, CommonFeignConfig.class,
-        LogCleanupConfig.class, OutboxMetricsConfig.class, OutboxConfig.class})
+        LogCleanupConfig.class, OutboxMetricsConfig.class, OutboxConfig.class, AuditConfig.class})
 public class MallServicePaymentApplication {
     public static void main(String[] args) {
         SpringApplication.run(MallServicePaymentApplication.class,args);

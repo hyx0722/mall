@@ -28,7 +28,7 @@ RabbitMQ 解耦「下单 → 扣库存 → 支付」链路。
 mall
 ├── model                      # 契约模块：实体、统一返回 Result、业务异常、领域事件契约、状态枚举
 ├── mall-common                # 运行时共享：身份拦截器、Auths 断言、Feign 配置、Rabbit 拓扑、
-│                              #   事务 outbox 实现、outbox 指标
+│                              #   事务 outbox 实现、outbox 指标、管理员审计日志切面
 ├── mall-gateway               # 网关：路由转发 + JWT 鉴权 + 注入用户身份头
 ├── mall-service               # 业务服务聚合模块
 │   ├── mall-service-user      # 用户 / 收货地址 / 商家上架商品入口 / 优惠券
@@ -40,7 +40,8 @@ mall
 ```
 
 仓库根目录另含两个 **Vue 前端工程**（不参与 Maven 构建）：`mall-web`（买家/卖家端，dev 端口
-**5173**）与 `mall-admin`（管理后台，dev 端口 **5174**），两者均经 Vite 代理到网关 9999。
+**5173**）与 `mall-admin`（管理后台：数据看板、用户/订单/退款/商品/库存/分类/优惠券、审计日志，
+dev 端口 **5174**），两者均经 Vite 代理到网关 9999。
 详见各自的 README：[mall-web](mall-web/README.md) · [mall-admin](mall-admin/README.md)。
 
 ## 服务与端口
@@ -171,11 +172,12 @@ export JWT_SECRET="$(openssl rand -base64 32)"
 mvn test
 ```
 
-仓库**共 10 个测试类**，都用来守「靠约定维持、重构时容易被静默破坏」的不变量：
+仓库**共 11 个测试类**，都用来守「靠约定维持、重构时容易被静默破坏」的不变量：
 
 | 模块 | 测试 | 守住什么 |
 | ---- | ---- | ---- |
 | `mall-common` | `IdentityContextTest` | 身份写入 ThreadLocal 后**必须在请求结束被清除**（否则线程池复用会导致越权） |
+| `mall-common` | `AuditLogSanitizerTest` | 审计日志里的 password / newPassword / token / secret **必须被替换为 `***`**，否则一次管理员重置密码就会把明文写进日志表 |
 | `mall-common` | `OutboxConfigTest` | outbox 装配出正确的事务代理（否则 `enqueueNewTx` 的 `REQUIRES_NEW` 静默失效、丢事件） |
 | `mall-common` | `OutboxConfirmInstallerTest` | 发布确认回调按行号正确路由；退回回调**必须靠 `messageId` 反查**（`ReturnsCallback` 拿不到 `CorrelationData`） |
 | `mall-service-user` | `CouponServiceImplTest` | 优惠券抵扣计算：未达门槛不可用、**抵扣不超过商品金额（不倒找钱）**、折扣舍入到分、封顶生效、范围匹配只计命中行；以及券面文案不得出现 `1E+2` 这类科学计数法（`stripTrailingZeros` 的陷阱） |
@@ -188,8 +190,8 @@ mvn test
 
 `InventoryMapperConcurrencyTest` 与新增的 `OutboxServiceImplTest` 都用 Testcontainers 起**真实 MySQL**，
 **需要本机 Docker 守护进程在运行**。两者对「没装 Docker」的处理刻意不同：前者**失败**
-（它守的是超卖这条命脉，静默跳过等于没人守），后者**跳过**（`mall-common` 原有三个测试
-刻意都是零基础设施的，不该因为新增一个测试就把该模块的 `mvn test` 变成必须装 Docker）。
+（它守的是超卖这条命脉，静默跳过等于没人守），后者**跳过**（`mall-common` 的零基础设施测试
+刻意保持任何机器都能跑，不该因为新增一个测试就把该模块的 `mvn test` 变成必须装 Docker）。
 详见 [docs/operations.md](docs/operations.md#测试)。
 
 ## 可观测性

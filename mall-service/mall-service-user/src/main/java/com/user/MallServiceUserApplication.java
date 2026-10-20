@@ -1,5 +1,6 @@
 package com.user;
 
+import com.mall.common.audit.AuditConfig;
 import com.mall.common.feign.CommonFeignConfig;
 import com.mall.common.logging.LogCleanupConfig;
 import com.model.web.GlobalExceptionHandler;
@@ -19,7 +20,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 // 也免得日后有人把数据源相关自动配置排除掉时 @Transactional 静默失效。
 @EnableTransactionManagement
 @EnableScheduling
-@Import({GlobalExceptionHandler.class, CommonFeignConfig.class, LogCleanupConfig.class})
+@Import({GlobalExceptionHandler.class, CommonFeignConfig.class, LogCleanupConfig.class, AuditConfig.class})
 public class MallServiceUserApplication {
     public static void main(String[] args) {
         SpringApplication.run(MallServiceUserApplication.class,args);

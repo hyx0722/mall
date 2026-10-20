@@ -11,6 +11,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
+
 @Service
 public class InventoryFeignServiceImpl implements InventoryFeignService {
     @Autowired
@@ -93,5 +95,11 @@ public class InventoryFeignServiceImpl implements InventoryFeignService {
         log.setAfterLockedStock(row.getLockedStock());
         log.setRemark("商家补货");
         inventoryLogMapper.insertLog(log);
+    }
+
+    @Override
+    public Map<String, Object> dashboard() {
+        Map<String, Object> stats = inventoryFeignMapper.dashboard();
+        return stats == null ? Map.of() : stats;
     }
 }

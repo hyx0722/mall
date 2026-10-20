@@ -4,6 +4,7 @@ import com.model.bean.User;
 import org.apache.ibatis.annotations.*;
 
 import java.util.List;
+import java.util.Map;
 @Mapper
 public interface UserAdminMapper {
 
@@ -43,4 +44,26 @@ public interface UserAdminMapper {
 
     @Insert("insert into user(username,password,status,role,created_time,updated_time) values(#{username},#{password},1,2,now(),now())")
     void insertAdmin(@Param("username") String username, @Param("password") String password);
+
+    // ---------- 管理员：看板 ----------
+
+    /** 用户概览：总数 / 正常 / 管理员 / 今日新增 */
+    @Select("""
+            select count(*)                                                      as totalUsers,
+                   coalesce(sum(case when status = 1 then 1 else 0 end), 0)      as activeUsers,
+                   coalesce(sum(case when role = 2 then 1 else 0 end), 0)        as adminUsers,
+                   coalesce(sum(case when date(created_time) = curdate() then 1 else 0 end), 0) as todayNew
+            from user
+            """)
+    Map<String, Object> dashboard();
+
+    /** 近 N 天注册趋势；空缺日由 service 补 0 */
+    @Select("""
+            select date(created_time) as day, count(*) as cnt
+            from user
+            where created_time >= date_sub(curdate(), interval #{days} day)
+            group by date(created_time)
+            order by day
+            """)
+    List<Map<String, Object>> registerTrend(@Param("days") int days);
 }

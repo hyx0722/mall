@@ -1,11 +1,11 @@
 package com.product.controller;
 
+import com.mall.common.audit.AuditLog;
 import com.mall.common.web.Auths;
 import com.model.bean.PageBean;
 import com.model.bean.Product;
 import com.model.bean.Result;
 import com.product.service.ProductAdminService;
-import com.product.service.ProductFeignService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,12 +13,15 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
+
 /**
  * 管理员内部系统：商品管理（查看所有商品、任意上/下架）。
  * 全部接口要求管理员（Auths.requireAdmin）。经网关：/product/admin/listAll 等。
  */
 @RestController
 @Validated
+@AuditLog(target = "PRODUCT")
 public class ProductAdminController {
 
     @Autowired
@@ -34,7 +37,15 @@ public class ProductAdminController {
         return Result.success(productAdminService.pageAllProducts(page, size, keyword));
     }
 
+    // 管理后台看板的商品侧统计
+    @GetMapping("/admin/stats")
+    public Result<Map<String, Object>> stats() {
+        Auths.requireAdmin();
+        return Result.success(productAdminService.dashboard());
+    }
+
     // 对任意商品上/下架：status=1 上架 / 0 下架
+    @AuditLog("商品上下架")
     @PutMapping("/admin/shelf")
     public Result shelf(@RequestParam Long id, @RequestParam Integer status) {
         Auths.requireAdmin();

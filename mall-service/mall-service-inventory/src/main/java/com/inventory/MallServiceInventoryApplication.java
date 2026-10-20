@@ -1,5 +1,6 @@
 package com.inventory;
 
+import com.mall.common.audit.AuditConfig;
 import com.mall.common.logging.LogCleanupConfig;
 import com.mall.common.metrics.OutboxMetricsConfig;
 import com.mall.common.outbox.OutboxConfig;
@@ -19,7 +20,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EnableFeignClients
 @EnableDiscoveryClient
 @Import({GlobalExceptionHandler.class, CommonWebConfig.class, LogCleanupConfig.class,
-        OutboxMetricsConfig.class, OutboxConfig.class})
+        OutboxMetricsConfig.class, OutboxConfig.class, AuditConfig.class})
 public class MallServiceInventoryApplication {
     public static void main(String[] args) {
         SpringApplication.run(MallServiceInventoryApplication.class,args);

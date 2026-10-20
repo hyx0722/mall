@@ -11,7 +11,12 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 @Service
 public class UserAdminServiceImpl implements UserAdminService {
 
@@ -89,6 +94,38 @@ public class UserAdminServiceImpl implements UserAdminService {
         if (affected == 0) {
             throw new BusinessException("用户不存在");
         }
+    }
+
+    @Override
+    public Map<String, Object> dashboard(int days) {
+        int d = (days < 1 || days > 90) ? 7 : days;
+        Map<String, Object> summary = userAdminMapper.dashboard();
+
+        Map<String, Map<String, Object>> byDay = new HashMap<>();
+        for (Map<String, Object> row : userAdminMapper.registerTrend(d)) {
+            Object day = row.get("day");
+            if (day != null) {
+                byDay.put(String.valueOf(day), row);
+            }
+        }
+
+        // 折线图需要连续日期，空缺日补 0（否则没注册的那天会被跳过）
+        List<Map<String, Object>> trend = new ArrayList<>(d);
+        LocalDate end = LocalDate.now();
+        for (int i = d - 1; i >= 0; i--) {
+            String day = end.minusDays(i).toString();
+            Map<String, Object> row = byDay.get(day);
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("day", day);
+            item.put("count", row == null ? 0 : row.get("cnt"));
+            trend.add(item);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("summary", summary == null ? Map.of() : summary);
+        result.put("trend", trend);
+        result.put("days", d);
+        return result;
     }
 
     @Override

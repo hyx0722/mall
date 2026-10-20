@@ -9,6 +9,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
+import java.util.Map;
 
 @Mapper
 public interface InventoryFeignMapper {
@@ -78,4 +79,19 @@ public interface InventoryFeignMapper {
             " order by i.id desc" +
             "</script>")
     List<Inventory> findAllInventory(@Param("productId") Long productId);
+
+    // ---------- 管理员：看板 ----------
+
+    /** 库存概览：SKU 数 / 可用 / 锁定 / 缺货 / 低于预警阈值 */
+    @Select("""
+            select count(*)                                                              as skuCount,
+                   coalesce(sum(available_stock), 0)                                     as availableStock,
+                   coalesce(sum(locked_stock), 0)                                        as lockedStock,
+                   coalesce(sum(case when available_stock = 0 then 1 else 0 end), 0)     as outOfStock,
+                   coalesce(sum(case when warn_threshold > 0
+                                      and available_stock <= warn_threshold
+                                     then 1 else 0 end), 0)                              as lowStock
+            from inventory
+            """)
+    Map<String, Object> dashboard();
 }

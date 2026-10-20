@@ -55,7 +55,7 @@ mall
 | 模块 | 内容 | 依赖约束 |
 | ---- | ---- | ---- |
 | `model` | `bean/`（实体、`PageBean`、`Result`）、`enums/`（`OrderStatus`、`RefundAuditStatus`）、`event/`（**跨服务事件契约**）、`exception/BusinessException`、`web/GlobalExceptionHandler`、`util/ThreadLocalUtil` | 只依赖 `spring-web` + `slf4j-api`。**刻意不引 servlet-api**——凡继承 `jakarta.servlet.*` 的异常（如 `MissingServletRequestParameterException`）都不能塞进这里的共享 advice，否则编译不过 |
-| `mall-common` | `web/IdentityInterceptor`、`web/Auths`、`web/CommonWebConfig`、`feign/CommonFeignConfig`、`feign/FeignIdentityInterceptor`、`rabbit/RabbitTopology`、`outbox/OutboxConfig`（事务 outbox 的三服务共用实现）、`metrics/OutboxMetrics` | 面向 servlet/WebMVC 的业务服务。**网关不依赖它**（网关是 WebFlux，两者技术栈不通） |
+| `mall-common` | `web/IdentityInterceptor`、`web/Auths`、`web/CommonWebConfig`、`feign/CommonFeignConfig`、`feign/FeignIdentityInterceptor`、`rabbit/RabbitTopology`、`outbox/OutboxConfig`（事务 outbox 的三服务共用实现）、`metrics/OutboxMetrics`、`audit/AuditConfig`（管理员操作审计切面 + 查询端） | 面向 servlet/WebMVC 的业务服务。**网关不依赖它**（网关是 WebFlux，两者技术栈不通）。审计需要 `spring-boot-starter-aspectj`（Boot 4 的新坐标），已在本模块声明并传递 |
 
 > 依赖方向：业务服务 → `mall-common` → `model`。事件契约放 `model` 是为了让发布方与消费方共享同一个类。
 >

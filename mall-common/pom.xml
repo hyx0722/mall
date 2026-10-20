@@ -33,6 +33,17 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <!--
+            AOP：管理员操作审计（AuditLogAspect）需要 AspectJ 注解与自动代理。
+            ⚠️ Boot 4 把旧的 spring-boot-starter-aop 改名为 spring-boot-starter-aspectj，
+            旧坐标不在 BOM 托管范围内（会报 version is missing）。
+            spring-boot-starter-aspectj 会带入 aspectjweaver；Boot 的 AopAutoConfiguration
+            在 classpath 上有 aspectjweaver 时自动开启 @EnableAspectJAutoProxy。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aspectj</artifactId>
+        </dependency>
         <!-- feign-core：RequestInterceptor / Retryer / Logger.Level（版本由 spring-cloud BOM 管理） -->
         <dependency>
             <groupId>io.github.openfeign</groupId>

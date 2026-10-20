@@ -21,6 +21,7 @@ function onUserCommand(cmd) {
     <el-aside width="212px" class="side">
       <div class="logo">商城管理后台</div>
       <el-menu :default-active="route.path" router class="menu">
+        <el-menu-item index="/dashboard">数据看板</el-menu-item>
         <el-menu-item index="/users">用户管理</el-menu-item>
         <el-menu-item index="/orders">订单管理</el-menu-item>
         <el-menu-item index="/refunds">退款审核</el-menu-item>
@@ -28,6 +29,7 @@ function onUserCommand(cmd) {
         <el-menu-item index="/inventory">库存查询</el-menu-item>
         <el-menu-item index="/category">分类管理</el-menu-item>
         <el-menu-item index="/coupons">优惠券</el-menu-item>
+        <el-menu-item index="/audit">审计日志</el-menu-item>
       </el-menu>
     </el-aside>
     <el-container class="right">

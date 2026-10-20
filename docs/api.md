@@ -188,6 +188,11 @@
 | /order | POST `/admin/withdraw/audit` | 审核提现；通过即视为已打款并把对应结算明细置为已提现 |
 | /order · /pay · /inventory | GET `/admin/outbox/abandoned?limit` | 列出被放弃（`status=3`）的 outbox 事件。三个有 outbox 表的服务**都**有这组接口 |
 | /order · /pay · /inventory | POST `/admin/outbox/requeue?limit` | 把被放弃的事件翻回待发送，下一轮 relay（3s）领取 |
+| /user | GET `/admin/stats?days` | 看板：用户总数 / 正常 / 管理员 / 今日新增 + 近 N 天注册趋势 |
+| /product | GET `/admin/stats` | 看板：商品总数 / 在售 / 下架 / 分类数 |
+| /order | GET `/admin/dashboard?days` | 看板：GMV、订单量/状态分布/趋势、热销商品、退款待办、最近订单 |
+| /inventory | GET `/admin/stats` | 看板：SKU 数 / 可用 / 锁定 / 缺货 / 预警数 |
+| /user · /product · /order · /inventory · /pay | GET `/admin/audit/logs?page&size&operatorId&action&result&from&to` | 管理员操作审计（只记写操作；查询参数已脱敏，请求体不落库） |
 
 > **outbox 重投**（上面最后两行）是 `status=3` 唯一的恢复入口——这类事件由「路由键与队列绑定不匹配」
 > 导致，重试永远不会成功，此前只能手工改库。接口**幂等**（条件 `status=3`，重复调用返回 0）、
@@ -195,6 +200,10 @@
 > 实现在 `mall-common` 的 `OutboxAdminController`，由 `OutboxConfig` 以 `@Bean` 注册，
 > 故「有 outbox 表 ⇒ 有这组接口」自动成立（注意 payment 除此以外没有任何管理员接口）。
 > 运维流程见 [operations.md](operations.md#已知未完成)。
+
+> **审计日志**由 `mall-common` 的 `AuditLogAspect` 写入各服务自己的 `audit_log`：
+> 只记写操作（GET/HEAD/OPTIONS 跳过），只记 `/admin/` 路径；查询参数里的密码/令牌会被脱敏，
+> **请求体不落库**。管理后台「审计日志」页按服务查询，「全部服务」是各服务最近 100 条的聚合视图。
 
 > **商家结算与提现**：订单完成后生成 `settlement` 明细（待结算），账期 T+N
 > （`order.settlement-delay-days`，默认 7 天）到点由 `SettlementTask` 转为**可提现**；

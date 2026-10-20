@@ -13,12 +13,15 @@ request.interceptors.request.use((config) => {
 
 // 统一解包 Result：{ code, message, data }，成功 code=0 直接返回 data；
 // 业务失败 code=1（HTTP 200）与鉴权失败 HTTP 401 均在此统一提示。
+//
+// _silent：看板会并行请求 4 个服务，逐个弹错会刷屏。调用方传 `_silent: true`
+// 可关掉单条 toast，由调用方汇总提示；401 的登出副作用不受影响。
 request.interceptors.response.use(
   (response) => {
     const body = response.data
     if (body && typeof body === 'object' && 'code' in body) {
       if (body.code === 0) return body.data
-      ElMessage.error(body.message || '请求失败')
+      if (!response.config?._silent) ElMessage.error(body.message || '请求失败')
       return Promise.reject(new Error(body.message || '请求失败'))
     }
     return body
@@ -28,10 +31,10 @@ request.interceptors.response.use(
     if (status === 401) {
       clearSession()
       if (!location.pathname.startsWith('/login')) {
-        ElMessage.error(error.response?.data?.message || '未登录或登录已失效')
+        if (!error.config?._silent) ElMessage.error(error.response?.data?.message || '未登录或登录已失效')
         location.href = '/login'
       }
-    } else {
+    } else if (!error.config?._silent) {
       ElMessage.error(error.response?.data?.message || error.message || '网络错误')
     }
     return Promise.reject(error)

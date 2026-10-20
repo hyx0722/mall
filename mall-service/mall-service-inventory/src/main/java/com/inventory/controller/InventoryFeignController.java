@@ -1,6 +1,7 @@
 package com.inventory.controller;
 
 import com.inventory.service.InventoryFeignService;
+import com.mall.common.audit.AuditLog;
 import com.mall.common.web.Auths;
 import com.model.bean.Inventory;
 import com.model.bean.Product;
@@ -16,10 +17,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @Slf4j
 @Validated
+@AuditLog(target = "INVENTORY")
 public class InventoryFeignController {
 
     @Autowired
@@ -64,5 +67,12 @@ public class InventoryFeignController {
     public Result<List<Inventory>> listAll(@RequestParam(required = false) Long productId) {
         Auths.requireAdmin();
         return Result.success(inventoryFeignService.listAllInventory(productId));
+    }
+
+    //管理员：看板的库存侧统计
+    @GetMapping("/admin/stats")
+    public Result<Map<String, Object>> stats() {
+        Auths.requireAdmin();
+        return Result.success(inventoryFeignService.dashboard());
     }
 }

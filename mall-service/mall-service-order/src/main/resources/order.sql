@@ -186,3 +186,28 @@ CREATE TABLE `product_review` (
 --       评价是历史事实而非订单状态的派生物，且 5 -> 3 本身是合法转换（退款被驳回），
 --       按状态实时过滤会让评价「消失又出现」。真要处理应打标灰显，属风控范畴。
 --    b) 不阻止卖家买自己的商品后评价。
+
+-- 管理员操作审计日志（audit_log）：order 服务自己的库里一张。
+-- 审核退款、审核提现、重投 outbox 等写操作由 mall-common 的 AuditLogAspect 记录。
+CREATE TABLE IF NOT EXISTS `audit_log` (
+                                `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '日志ID',
+                                `operator_id`   BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '操作人用户ID；0=系统/未识别',
+                                `operator_name` VARCHAR(64)     DEFAULT NULL COMMENT '操作人用户名',
+                                `operator_role` TINYINT         NOT NULL DEFAULT 0 COMMENT '操作人角色：1普通用户 2管理员',
+                                `service`       VARCHAR(64)     NOT NULL DEFAULT '' COMMENT '服务名（spring.application.name）',
+                                `action`        VARCHAR(100)    NOT NULL DEFAULT '' COMMENT '操作动作',
+                                `target_type`   VARCHAR(32)     DEFAULT NULL COMMENT '对象类型：USER/PRODUCT/ORDER...',
+                                `target_id`     VARCHAR(64)     DEFAULT NULL COMMENT '对象ID',
+                                `method`        VARCHAR(8)      DEFAULT NULL COMMENT 'HTTP方法',
+                                `path`          VARCHAR(255)    DEFAULT NULL COMMENT '请求路径',
+                                `params`        VARCHAR(1000)   DEFAULT NULL COMMENT '脱敏后的查询参数；不记录请求体',
+                                `result`        TINYINT         NOT NULL DEFAULT 1 COMMENT '结果：1成功 0失败',
+                                `error_msg`     VARCHAR(500)    DEFAULT NULL COMMENT '失败原因',
+                                `ip`            VARCHAR(64)     DEFAULT NULL COMMENT '来源IP',
+                                `user_agent`    VARCHAR(255)    DEFAULT NULL COMMENT 'User-Agent',
+                                `created_time`  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+                                PRIMARY KEY (`id`),
+                                KEY `idx_created` (`created_time`),
+                                KEY `idx_operator` (`operator_id`,`created_time`),
+                                KEY `idx_action` (`action`,`created_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='管理员操作审计日志';
